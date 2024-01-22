@@ -1,0 +1,8 @@
+{
+  "providerSpecificConfig": {
+    "groupVersionKinds": [{"group": "apps", "version": "v1", "kind": "Deployment"}, {"group": "", "version": "v1", "kind": "Pod"}, {"group": "", "version": "route.openshift.io/v1", "kind":"Route"}],
+    "namespaces": ["konveyor-tackle"],
+    "kubeConfigPath": ".kube/config",
+    "basePoliciesPath": "policies/"
+  }
+}
