@@ -7,21 +7,21 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/bombsimon/logrusr/v3"
-	"github.com/go-logr/logr"
+	liblogr "github.com/jortel/go-utils/logr"
 	"github.com/konveyor-ecosystem/k8s-provider/provider"
 	libprovider "github.com/konveyor/analyzer-lsp/provider"
-	"github.com/sirupsen/logrus"
 )
 
 var (
 	InitConfigPath    string
 	ConditionInfoPath string
+	Capability        string
 )
 
 func init() {
 	flag.StringVar(&InitConfigPath, "initConfig", "settings.json", "path to initConfig json")
 	flag.StringVar(&ConditionInfoPath, "conditionInfo", "condition.json", "path to condition info")
+	flag.StringVar(&Capability, "capability", "rego.policy", "capability")
 }
 
 func main() {
@@ -32,17 +32,8 @@ func main() {
 	}
 }
 
-func setupLogging() (log logr.Logger) {
-	l := logrus.New()
-	l.SetOutput(os.Stdout)
-	l.SetFormatter(&logrus.TextFormatter{})
-	l.SetLevel(logrus.Level(5))
-	log = logrusr.New(l)
-	return
-}
-
 func runCLI() (err error) {
-	log := setupLogging()
+	log := liblogr.WithName("k8s")
 	prv := provider.New()
 	bytes, err := os.ReadFile(InitConfigPath)
 	if err != nil {
@@ -61,7 +52,7 @@ func runCLI() (err error) {
 	if err != nil {
 		return
 	}
-	resp, err := srv.Evaluate(context.TODO(), provider.CapabilityRego, conditionInfo)
+	resp, err := srv.Evaluate(context.TODO(), Capability, conditionInfo)
 	if err != nil {
 		return
 	}

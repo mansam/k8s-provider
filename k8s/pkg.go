@@ -2,7 +2,9 @@ package k8s
 
 import (
 	"context"
+	"fmt"
 
+	"go.lsp.dev/uri"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -38,11 +40,6 @@ func (r *UnstructuredResources) Gather(namespace string, gvks []schema.GroupVers
 	return
 }
 
-type Client struct {
-	k8s.Client
-	Host string
-}
-
 // NewClient builds new k8s client.
 func NewClient(kubeConfig []byte) (client *Client, err error) {
 	config, err := clientcmd.NewClientConfigFromBytes(kubeConfig)
@@ -65,5 +62,34 @@ func NewClient(kubeConfig []byte) (client *Client, err error) {
 		Client: k8sClient,
 		Host:   restCfg.Host,
 	}
+	return
+}
+
+// Client is a k8s client.
+type Client struct {
+	k8s.Client
+	Host string
+}
+
+// GetResourceURI for a given GVK, namespace, and name.
+func (r *Client) GetResourceURI(group, version, kind, namespace, name string) (u uri.URI, err error) {
+	gk := schema.GroupKind{Group: group, Kind: kind}
+	mapping, err := r.RESTMapper().RESTMapping(gk, version)
+	if err != nil {
+		return
+	}
+	var path string
+	if mapping.Resource.Group == "" {
+		path = fmt.Sprintf("%s/api/%s", r.Host, mapping.Resource.Version)
+	} else {
+		path = fmt.Sprintf("%s/apis/%s/%s", r.Host, mapping.Resource.Group, mapping.Resource.Version)
+	}
+	if namespace == "" {
+		path = fmt.Sprintf("%s/%s/%s", path, mapping.Resource, name)
+	} else {
+		path = fmt.Sprintf("%s/namespaces/%s/%s/%s", path, namespace, mapping.Resource.Resource, name)
+	}
+
+	u, _ = uri.Parse(path)
 	return
 }
