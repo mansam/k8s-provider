@@ -1,0 +1,3 @@
+{
+  "module": "package policy\nimport future.keywords\nimport data.lib.konveyor\n\nincidents contains msg if {\n some item in data.lib.konveyor.deployments\n msg := {\n  \"namespace\": item.metadata.namespace,\n  \"kind\": item.kind,\n  \"name\": item.metadata.name,\n  \"apiVersion\": item.apiVersion,\n }\n}"
+}

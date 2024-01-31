@@ -1,0 +1,4 @@
+{
+	"collection": "deployments",
+	"expression": "item.spec.replicas == 1"
+}
