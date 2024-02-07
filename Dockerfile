@@ -13,7 +13,7 @@ COPY k8s/ k8s/
 COPY modules/ modules/
 COPY provider/ provider/
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o k8s-provider cmd/cli/main.go
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o k8s-provider cmd/server/main.go
 
 FROM registry.access.redhat.com/ubi8-minimal
 
