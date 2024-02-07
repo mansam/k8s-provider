@@ -1,6 +1,6 @@
 module github.com/konveyor-ecosystem/k8s-provider
 
-go 1.21.5
+go 1.21
 
 require (
 	github.com/go-logr/logr v1.3.0
