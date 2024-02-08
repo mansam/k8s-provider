@@ -122,7 +122,10 @@ func (r *K8s) Evaluate(ctx context.Context, cap string, conditionInfo []byte) (r
 	return
 }
 
-func (r *K8s) Stop() {}
+func (r *K8s) Stop() {
+	fmt.Println("Goodbye.")
+	os.Exit(0)
+}
 func (r *K8s) GetDependencies(ctx context.Context) (deps map[uri.URI][]*libprovider.Dep, err error) {
 	return
 }
