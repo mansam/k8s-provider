@@ -17,9 +17,8 @@ import (
 
 // Capabilities
 const (
-	CapabilityRegoModule     = "rego.module"
-	CapabilityRegoExpression = "rego.expr"
-	CapabilitySkopeo         = "skopeo"
+	CapabilityRegoModule     = "rego_module"
+	CapabilityRegoExpression = "rego_expr"
 )
 
 // K8sInitConfig is the provider init config with the k8s provider-specific fields unmarshalled.
@@ -107,9 +106,6 @@ func (r *K8s) Capabilities() (caps []libprovider.Capability) {
 		{
 			Name: CapabilityRegoModule,
 		},
-		{
-			Name: CapabilitySkopeo,
-		},
 	}
 	return
 }
@@ -121,9 +117,6 @@ func (r *K8s) Evaluate(ctx context.Context, cap string, conditionInfo []byte) (r
 		resp, err = r.evaluateRegoExpression(ctx, conditionInfo)
 	case CapabilityRegoModule:
 		resp, err = r.evaluateRegoModule(ctx, conditionInfo)
-	case CapabilitySkopeo:
-		err = errors.New("not yet implemented")
-		return
 	}
 
 	return
@@ -137,7 +130,7 @@ func (r *K8s) GetDependenciesDAG(ctx context.Context) (dag map[uri.URI][]libprov
 	return
 }
 
-// evaluate a rego.expr rule
+// evaluate a rego_expr rule
 func (r *K8s) evaluateRegoExpression(ctx context.Context, conditionInfo []byte) (resp libprovider.ProviderEvaluateResponse, err error) {
 	condInfo := &ExpressionConditionInfo{}
 	err = json.Unmarshal(conditionInfo, condInfo)
@@ -162,7 +155,7 @@ func (r *K8s) evaluateRegoExpression(ctx context.Context, conditionInfo []byte) 
 	return
 }
 
-// evaluate a rego.module rule
+// evaluate a rego_module rule
 func (r *K8s) evaluateRegoModule(ctx context.Context, conditionInfo []byte) (resp libprovider.ProviderEvaluateResponse, err error) {
 	condInfo := &ModuleConditionInfo{}
 	err = json.Unmarshal(conditionInfo, condInfo)
@@ -194,6 +187,9 @@ func (r *K8s) interpretResultSet(results rego.ResultSet) (resp libprovider.Provi
 	incidents, ok := results[0].Bindings["incidents"].([]interface{})
 	if !ok {
 		err = errors.New("unknown result")
+		return
+	}
+	if len(incidents) == 0 {
 		return
 	}
 	resp.Matched = true

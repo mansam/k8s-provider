@@ -1,0 +1,28 @@
+ruleID: low-replica-count
+effort: 1
+category: optional
+message: "Deployment has a low replica count"
+when:
+  k8s.rego_expr:
+    collection: deployments
+    expression: item.spec.replicas < 2
+---
+ruleID: lonely-pod
+effort: 1
+category: optional
+message: "Pod does not have an OwnerReference. Pod lifecycle should be managed by a resource such as a Deployment to ensure availability."
+when:
+  k8s.rego_expr:
+    collection: pods
+    expression: not item.metadata.ownerReferences
+---
+ruleID: pod-anti-affinity
+effort: 1
+category: optional
+message: |
+  Deployment does not have pod anti-affinity rules set. Consider adding anti-affinity rules to ensure pods
+  are deployed on different nodes to improve availability in the event of a node failure.
+when:
+  k8s.rego_expr:
+    collection: deployments
+    expression: not item.spec.template.spec.affinity.podAntiAffinity
