@@ -1,26 +1,24 @@
-ruleID: missing-memory-limits
-effort: 1
-category: optional
-message: "Deployment containers are missing memory limits"
-when:
-  k8s.rego_expr:
-    collection: deployments
-    expression: some container in item.spec.template.spec.containers; not container.resources.limits.memory
----
-ruleID: missing-memory-requests
-effort: 1
-category: optional
-message: "Deployment containers are missing memory requests"
-when:
-  k8s.rego_expr:
-    collection: deployments
-    expression: some container in item.spec.template.spec.containers; not container.resources.requests.memory
----
-ruleID: missing-cpu-requests
-effort: 1
-category: optional
-message: "Deployment containers are missing CPU requests"
-when:
-  k8s.rego_expr:
-    collection: deployments
-    expression: some container in item.spec.template.spec.containers; not container.resources.requests.cpu
+- ruleID: missing-memory-limits
+  effort: 1
+  category: optional
+  message: "Deployment containers are missing memory limits"
+  when:
+    k8s.rego_expr:
+      collection: deployments
+      expression: some container in item.spec.template.spec.containers; not container.resources.limits.memory
+- ruleID: missing-memory-requests
+  effort: 1
+  category: optional
+  message: "Deployment containers are missing memory requests"
+  when:
+    k8s.rego_expr:
+      collection: deployments
+      expression: some container in item.spec.template.spec.containers; not container.resources.requests.memory
+- ruleID: missing-cpu-requests
+  effort: 1
+  category: optional
+  message: "Deployment containers are missing CPU requests"
+  when:
+    k8s.rego_expr:
+      collection: deployments
+      expression: some container in item.spec.template.spec.containers; not container.resources.requests.cpu

@@ -12,7 +12,12 @@ import (
 	libprovider "github.com/konveyor/analyzer-lsp/provider"
 	"github.com/open-policy-agent/opa/rego"
 	"go.lsp.dev/uri"
+	"gopkg.in/yaml.v3"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+)
+
+const (
+	ProviderName = "k8s"
 )
 
 // Capabilities
@@ -26,9 +31,7 @@ type K8sInitConfig struct {
 	libprovider.InitConfig
 	ProviderSpecificConfig struct {
 		// path to the cluster's kube config
-		KubeConfigPath string `json:"kubeConfigPath"`
-		// path to a directory of base modules that should establish the resource collections
-		BaseModulesPath string `json:"baseModulesPath"`
+		KubeConfig []byte `json:"kubeConfig"`
 		// list of GVKs to evaluate rules against
 		GroupVersionKinds []schema.GroupVersionKind `json:"groupVersionKinds"`
 		// list of namespaces to collect resources from
@@ -74,14 +77,9 @@ func (r *K8s) Init(ctx context.Context, log logr.Logger, initCfg libprovider.Ini
 	}
 	r.ctx = ctx
 	r.log = log
-	r.baseModules = rego.Load([]string{cfg.ProviderSpecificConfig.BaseModulesPath}, nil)
+	r.baseModules = rego.Module("inventory.rego", InventoryModule)
 
-	bytes, err := os.ReadFile(cfg.ProviderSpecificConfig.KubeConfigPath)
-	if err != nil {
-		return
-	}
-
-	r.k8sClient, err = k8s.NewClient(bytes)
+	r.k8sClient, err = k8s.NewClient(cfg.ProviderSpecificConfig.KubeConfig)
 	if err != nil {
 		return
 	}
@@ -111,18 +109,26 @@ func (r *K8s) Capabilities() (caps []libprovider.Capability) {
 }
 
 // Evaluate a capability and return a result.
-func (r *K8s) Evaluate(ctx context.Context, cap string, conditionInfo []byte) (resp libprovider.ProviderEvaluateResponse, err error) {
+func (r *K8s) Evaluate(ctx context.Context, cap string, conditionBytes []byte) (resp libprovider.ProviderEvaluateResponse, err error) {
+	condition := ConditionInfo{}
+	err = yaml.Unmarshal(conditionBytes, &condition)
+	if err != nil {
+		return
+	}
 	switch cap {
 	case CapabilityRegoExpression:
-		resp, err = r.evaluateRegoExpression(ctx, conditionInfo)
+		resp, err = r.evaluateRegoExpression(ctx, condition.Expression)
 	case CapabilityRegoModule:
-		resp, err = r.evaluateRegoModule(ctx, conditionInfo)
+		resp, err = r.evaluateRegoModule(ctx, condition.Module)
 	}
 
 	return
 }
 
-func (r *K8s) Stop() {}
+func (r *K8s) Stop() {
+	fmt.Println("Goodbye.")
+	os.Exit(0)
+}
 func (r *K8s) GetDependencies(ctx context.Context) (deps map[uri.URI][]*libprovider.Dep, err error) {
 	return
 }
@@ -131,14 +137,8 @@ func (r *K8s) GetDependenciesDAG(ctx context.Context) (dag map[uri.URI][]libprov
 }
 
 // evaluate a rego_expr rule
-func (r *K8s) evaluateRegoExpression(ctx context.Context, conditionInfo []byte) (resp libprovider.ProviderEvaluateResponse, err error) {
-	condInfo := &ExpressionConditionInfo{}
-	err = json.Unmarshal(conditionInfo, condInfo)
-	if err != nil {
-		return
-	}
-
-	policy := rego.Module("policy.rego", fmt.Sprintf(ExpressionTemplate, condInfo.Collection, condInfo.Expression))
+func (r *K8s) evaluateRegoExpression(ctx context.Context, condition ExpressionCondition) (resp libprovider.ProviderEvaluateResponse, err error) {
+	policy := rego.Module("policy.rego", fmt.Sprintf(ExpressionTemplate, condition.Collection, condition.Expression))
 	prepared, err := rego.New(
 		rego.Query("incidents = data.policy.incidents"),
 		r.baseModules,
@@ -156,13 +156,11 @@ func (r *K8s) evaluateRegoExpression(ctx context.Context, conditionInfo []byte) 
 }
 
 // evaluate a rego_module rule
-func (r *K8s) evaluateRegoModule(ctx context.Context, conditionInfo []byte) (resp libprovider.ProviderEvaluateResponse, err error) {
-	condInfo := &ModuleConditionInfo{}
-	err = json.Unmarshal(conditionInfo, condInfo)
+func (r *K8s) evaluateRegoModule(ctx context.Context, condition ModuleCondition) (resp libprovider.ProviderEvaluateResponse, err error) {
 	if err != nil {
 		return
 	}
-	policy := rego.Module("policy.rego", condInfo.Module)
+	policy := rego.Module("policy.rego", condition.Module)
 	prepared, err := rego.New(
 		rego.Query("incidents = data.policy.incidents"),
 		r.baseModules,
@@ -186,7 +184,7 @@ func (r *K8s) interpretResultSet(results rego.ResultSet) (resp libprovider.Provi
 	}
 	incidents, ok := results[0].Bindings["incidents"].([]interface{})
 	if !ok {
-		err = errors.New("unknown result")
+		err = errors.New("unexpected result format")
 		return
 	}
 	if len(incidents) == 0 {

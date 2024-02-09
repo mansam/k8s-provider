@@ -1,23 +1,34 @@
 package provider
 
-import "strings"
+import (
+	_ "embed"
+	"strings"
+)
 
-// ModuleConditionInfo is the input for the rego.module
+//go:embed inventory.rego
+var InventoryModule string
+
+// ModuleCondition is the input for the rego_module
 // capability, which takes an entire rego module and evaluates it.
-type ModuleConditionInfo struct {
+type ModuleCondition struct {
 	Module string `json:"module"`
 }
 
-// ExpressionConditionInfo is the input for the rego.expr
+// ExpressionCondition is the input for the rego_expr
 // capability, which takes a single rego expression and injects it
 // into a module template which will evaluate it in the context
 // of a single resource collection.
-type ExpressionConditionInfo struct {
+type ExpressionCondition struct {
 	// Collection is the resource collection from the
 	// base module that the expression should be evaluated against.
 	Collection string `json:"collection"`
 	// Expression is a single rego expression.
 	Expression string `json:"expression"`
+}
+
+type ConditionInfo struct {
+	Expression ExpressionCondition `json:"rego_expr" yaml:"rego_expr"`
+	Module     ModuleCondition     `json:"rego_module" yaml:"rego_module"`
 }
 
 // ExpressionTemplate is the template that the parameters

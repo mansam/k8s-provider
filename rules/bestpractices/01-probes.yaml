@@ -1,33 +1,30 @@
----
-ruleID: no-readiness-probe
-effort: 1
-category: optional
-message: |
-  One or more containers in this deployment are missing a readiness probe. Without a readiness probe, the kubelet will
-  assume the container is ready for traffic as soon as it starts.
-when:
-  k8s.rego_expr:
-    collection: deployments
-    expression: some container in item.spec.template.spec.containers; not container.readinessProbe
----
-ruleID: no-liveness-probe
-effort: 1
-category: optional
-message: |
-  One or more containers in this deployment are missing a liveness probe. Liveness probes allow the kubelet to identify
-  when a running container is no longer responding correctly and needs to be restarted.
-when:
-  k8s.rego_expr:
-    collection: deployments
-    expression: some container in item.spec.template.spec.containers; not container.livenessProbe
----
-ruleID: duplicate-probes
-effort: 1
-category: optional
-message: |
-  One or more containers in this deployment appear to have identical liveness and readiness probes. Reusing the same
-  endpoint for both liveness and readiness probes diminishes their usefulness.
-when:
-  k8s.rego_expr:
-    collection: deployments
-    expression: some container in item.spec.template.spec.containers; container.livenessProbe == container.readinessProbe
+- ruleID: no-readiness-probe
+  effort: 1
+  category: optional
+  message: |
+    One or more containers in this deployment are missing a readiness probe. Without a readiness probe, the kubelet will
+    assume the container is ready for traffic as soon as it starts.
+  when:
+    k8s.rego_expr:
+      collection: deployments
+      expression: some container in item.spec.template.spec.containers; not container.readinessProbe
+- ruleID: no-liveness-probe
+  effort: 1
+  category: optional
+  message: |
+    One or more containers in this deployment are missing a liveness probe. Liveness probes allow the kubelet to identify
+    when a running container is no longer responding correctly and needs to be restarted.
+  when:
+    k8s.rego_expr:
+      collection: deployments
+      expression: some container in item.spec.template.spec.containers; not container.livenessProbe
+- ruleID: duplicate-probes
+  effort: 1
+  category: optional
+  message: |
+    One or more containers in this deployment appear to have identical liveness and readiness probes. Reusing the same
+    endpoint for both liveness and readiness probes diminishes their usefulness.
+  when:
+    k8s.rego_expr:
+      collection: deployments
+      expression: some container in item.spec.template.spec.containers; container.livenessProbe == container.readinessProbe

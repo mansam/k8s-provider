@@ -1,17 +1,16 @@
-ruleID: mount-secrets
-effort: 1
-category: optional
-message: "Mount Secrets as volumes, not environment variables to prevent them from leaking in the container start command."
-when:
-  k8s.rego_expr:
-    collection:
-    expression:
----
-ruleID: avoid-privileged-containers
-effort: 1
-category: optional
-message: "Avoid running privileged containers if possible."
-when:
-  k8s.rego_expr:
-    collection: deployments
-    expression: some container in item.spec.template.spec.containers; container.securityContext.privileged
+#- ruleID: mount-secrets
+#  effort: 1
+#  category: optional
+#  message: "Mount Secrets as volumes, not environment variables to prevent them from leaking in the container start command."
+#  when:
+#    k8s.rego_expr:
+#      collection:
+#      expression:
+- ruleID: avoid-privileged-containers
+  effort: 1
+  category: optional
+  message: "Avoid running privileged containers if possible."
+  when:
+    k8s.rego_expr:
+      collection: deployments
+      expression: some container in item.spec.template.spec.containers; container.securityContext.privileged
