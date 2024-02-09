@@ -12,6 +12,7 @@ import (
 	libprovider "github.com/konveyor/analyzer-lsp/provider"
 	"github.com/open-policy-agent/opa/rego"
 	"go.lsp.dev/uri"
+	"gopkg.in/yaml.v3"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
@@ -108,12 +109,17 @@ func (r *K8s) Capabilities() (caps []libprovider.Capability) {
 }
 
 // Evaluate a capability and return a result.
-func (r *K8s) Evaluate(ctx context.Context, cap string, conditionInfo []byte) (resp libprovider.ProviderEvaluateResponse, err error) {
+func (r *K8s) Evaluate(ctx context.Context, cap string, conditionBytes []byte) (resp libprovider.ProviderEvaluateResponse, err error) {
+	condition := ConditionInfo{}
+	err = yaml.Unmarshal(conditionBytes, &condition)
+	if err != nil {
+		return
+	}
 	switch cap {
 	case CapabilityRegoExpression:
-		resp, err = r.evaluateRegoExpression(ctx, conditionInfo)
+		resp, err = r.evaluateRegoExpression(ctx, condition.Expression)
 	case CapabilityRegoModule:
-		resp, err = r.evaluateRegoModule(ctx, conditionInfo)
+		resp, err = r.evaluateRegoModule(ctx, condition.Module)
 	}
 
 	return
@@ -131,14 +137,8 @@ func (r *K8s) GetDependenciesDAG(ctx context.Context) (dag map[uri.URI][]libprov
 }
 
 // evaluate a rego_expr rule
-func (r *K8s) evaluateRegoExpression(ctx context.Context, conditionInfo []byte) (resp libprovider.ProviderEvaluateResponse, err error) {
-	condInfo := &ExpressionConditionInfo{}
-	err = json.Unmarshal(conditionInfo, condInfo)
-	if err != nil {
-		return
-	}
-
-	policy := rego.Module("policy.rego", fmt.Sprintf(ExpressionTemplate, condInfo.Collection, condInfo.Expression))
+func (r *K8s) evaluateRegoExpression(ctx context.Context, condition ExpressionCondition) (resp libprovider.ProviderEvaluateResponse, err error) {
+	policy := rego.Module("policy.rego", fmt.Sprintf(ExpressionTemplate, condition.Collection, condition.Expression))
 	prepared, err := rego.New(
 		rego.Query("incidents = data.policy.incidents"),
 		r.baseModules,
@@ -156,13 +156,11 @@ func (r *K8s) evaluateRegoExpression(ctx context.Context, conditionInfo []byte) 
 }
 
 // evaluate a rego_module rule
-func (r *K8s) evaluateRegoModule(ctx context.Context, conditionInfo []byte) (resp libprovider.ProviderEvaluateResponse, err error) {
-	condInfo := &ModuleConditionInfo{}
-	err = json.Unmarshal(conditionInfo, condInfo)
+func (r *K8s) evaluateRegoModule(ctx context.Context, condition ModuleCondition) (resp libprovider.ProviderEvaluateResponse, err error) {
 	if err != nil {
 		return
 	}
-	policy := rego.Module("policy.rego", condInfo.Module)
+	policy := rego.Module("policy.rego", condition.Module)
 	prepared, err := rego.New(
 		rego.Query("incidents = data.policy.incidents"),
 		r.baseModules,

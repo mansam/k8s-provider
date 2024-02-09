@@ -3,17 +3,16 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"path"
 	"strings"
 
 	liblogr "github.com/jortel/go-utils/logr"
+	"github.com/konveyor-ecosystem/k8s-provider/provider"
 	liboutput "github.com/konveyor/analyzer-lsp/output/v1/konveyor"
-	"github.com/konveyor/analyzer-lsp/provider"
+	libprovider "github.com/konveyor/analyzer-lsp/provider"
 	"github.com/konveyor/analyzer-lsp/provider/grpc"
 	"gopkg.in/yaml.v3"
 )
@@ -24,6 +23,7 @@ var (
 	ServerAddr     string
 	Namespaces     string
 	Stop           bool
+	Dryrun         bool
 )
 
 func init() {
@@ -32,6 +32,7 @@ func init() {
 	flag.StringVar(&ServerAddr, "server", "127.0.0.1:9000", "address of provider gRPC server")
 	flag.StringVar(&Namespaces, "namespaces", "konveyor-tackle", "comma-delimited list of namespaces to analyze")
 	flag.BoolVar(&Stop, "stop", false, "send stop signal to gRPC server after evaluating rules.")
+	flag.BoolVar(&Dryrun, "dryrun", false, "print the config that would be used to init the provider and then terminate.")
 }
 
 func main() {
@@ -40,6 +41,11 @@ func main() {
 	config, err := ConstructProviderConfig()
 	if err != nil {
 		panic(err)
+	}
+	if Dryrun {
+		dump, _ := json.Marshal(config)
+		fmt.Printf("%s\n", dump)
+		return
 	}
 	client := grpc.NewGRPCClient(config, log)
 	err = client.Start(context.TODO())
@@ -70,7 +76,7 @@ func main() {
 	}
 }
 
-func ConstructProviderConfig() (config provider.Config, err error) {
+func ConstructProviderConfig() (config libprovider.Config, err error) {
 	kubeConfigBytes, err := os.ReadFile(KubeConfigPath)
 	if err != nil {
 		panic(err)
@@ -82,10 +88,10 @@ func ConstructProviderConfig() (config provider.Config, err error) {
 	}
 	config.Name = "k8s"
 	config.Address = ServerAddr
-	config.Proxy = &provider.Proxy{}
-	config.InitConfig = []provider.InitConfig{
+	config.Proxy = &libprovider.Proxy{}
+	config.InitConfig = []libprovider.InitConfig{
 		{
-			Proxy: &provider.Proxy{},
+			Proxy: &libprovider.Proxy{},
 			ProviderSpecificConfig: map[string]interface{}{
 				"groupVersionKinds": []interface{}{
 					map[string]interface{}{"group": "apps", "version": "v1", "kind": "Deployment"},
@@ -100,22 +106,30 @@ func ConstructProviderConfig() (config provider.Config, err error) {
 	return
 }
 
-func EvaluateRuleset(svc provider.ServiceClient, rs RuleSet) (result ResultRuleset, err error) {
+func EvaluateRuleset(svc libprovider.ServiceClient, rs RuleSet) (result ResultRuleset, err error) {
 	result.Name = rs.Name
 	result.Description = rs.Description
 	result.Violations = make(map[string]Violation)
 	result.Errors = make(map[string]string)
 	for _, r := range rs.Rules {
-		var resp provider.ProviderEvaluateResponse
+		var resp libprovider.ProviderEvaluateResponse
 		var bytes []byte
-		if condInfo, ok := r.When["k8s.rego_expr"]; ok {
-			bytes, err = json.Marshal(condInfo)
+
+		if when, ok := r.When["k8s.rego_expr"]; ok {
+			condition := provider.ConditionInfo{Expression: provider.ExpressionCondition{
+				Collection: when["collection"],
+				Expression: when["expression"],
+			}}
+			bytes, err = json.Marshal(condition)
 			if err != nil {
 				return
 			}
 			resp, err = svc.Evaluate(context.TODO(), "rego_expr", bytes)
-		} else if condInfo, ok = r.When["k8s.rego_module"]; ok {
-			bytes, err = json.Marshal(condInfo)
+		} else if when, ok = r.When["k8s.rego_module"]; ok {
+			condition := provider.ConditionInfo{Module: provider.ModuleCondition{
+				Module: when["module"],
+			}}
+			bytes, err = json.Marshal(condition)
 			if err != nil {
 				return
 			}
@@ -245,21 +259,13 @@ func ReadRuleset(ruleSetDir string) (rs RuleSet, err error) {
 				return
 			}
 			defer f.Close()
-
 			decoder := yaml.NewDecoder(f)
-
-			for {
-				rule := Rule{}
-				err = decoder.Decode(&rule)
-				if err != nil {
-					if errors.Is(err, io.EOF) {
-						err = nil
-						break
-					}
-					return
-				}
-				rs.Rules = append(rs.Rules, rule)
+			rules := []Rule{}
+			err = decoder.Decode(&rules)
+			if err != nil {
+				return
 			}
+			rs.Rules = append(rs.Rules, rules...)
 			return
 		}()
 	}

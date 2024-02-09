@@ -16,7 +16,5 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o k8s-provider cmd/server
 
 FROM registry.access.redhat.com/ubi8-minimal
 
-RUN mkdir /opt/modules
-
 COPY --from=builder /workspace/k8s-provider /usr/local/bin/k8s-provider
 ENTRYPOINT k8s-provider --port ${PORT}
