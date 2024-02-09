@@ -1,38 +1,18 @@
 # gRPC Client Demo
 
-This gRPC client demonstrates the functionality of the provider running in gRPC server mode, and it can be used to run (a feature-limited subset of) analyzer rulesets. 
+This gRPC client demonstrates the functionality of the provider running in gRPC server mode, and it can be used to run (a feature-limited subset of) analyzer rulesets.
 
 ## Usage
 
-The gRPC client needs to be passed an entire Analyzer provider config, not just the provider specific conf. It will use this configuration to remotely initialize the provider gRPC server. For example:
+The gRPC client will construct a provider config from its command line arguments and use that to initialize the provider.
 
-```json
-{
-  "name": "k8s",
-  "address": "127.0.0.1:8888",
-  "proxyConfig": {},
-  "initConfig": [{
-    "providerSpecificConfig": {
-      "groupVersionKinds": [{"group": "apps", "version": "v1", "kind": "Deployment"}, {"group": "", "version": "v1", "kind": "Pod"}, {"group": "", "version": "route.openshift.io/v1", "kind":"Route"}],
-      "namespaces": ["konveyor-tackle"],
-      "kubeConfigPath": "/home/username/.kube/config",
-      "baseModulesPath": "modules/"
-    },
-    "proxyConfig": {
-    }
-  }]
-}
-```
+The flags are:
 
-The name must be `k8s`, and the address should be the address on which the gRPC provider is listening. `kubeConfigPath` and `baseModulesPath` are paths that need to be accessible to the the server binary where ever it happens to be running.
-
-The `--rules` flag must be a path to a file containing a json object with an property named `ruleSets` containing an array of paths to analyzer rulesets compatible with the provider. Such a ruleset is included in this repository unde `rules/bestpractices`.
-
-```json
-{
-  "ruleSets": ["rules/bestpractices"]
-}
-```
+* `--server`: address of provider server
+* `--kubeconfig`: path to the kubeconfig with the coordinates to the cluster to be analyzed
+* `--namespaces`: comma-delimited list of namespaces to analyze
+* `--rules`: comma-delimited list of paths to rulesets
+* `--stop`: indicates that the provider should be sent the signal to shut down after results are returned.
 
 Example command invocations:
 
@@ -41,7 +21,7 @@ Example command invocations:
 ```
 
 ```sh
-./bin/grpc --config provider.json --rules rules.json | jq > output.json
+./bin/grpc --server 127.0.0.1:8888 --kubeconfig .kube/config --namespaces konveyor-tackle --rules rules/bestpractices
 ```
 
 ## Example output
@@ -73,5 +53,5 @@ Example command invocations:
         "category": "optional",
         "incidents": [
           {
-<snip>
+            <snip>
 ```

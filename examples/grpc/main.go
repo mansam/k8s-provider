@@ -19,24 +19,25 @@ import (
 )
 
 var (
-	ProviderConfigPath string
-	RulesPath          string
+	KubeConfigPath string
+	RulesPaths     string
+	ServerAddr     string
+	Namespaces     string
+	Stop           bool
 )
 
 func init() {
-	flag.StringVar(&ProviderConfigPath, "config", "provider.json", "path to provider config json")
-	flag.StringVar(&RulesPath, "rules", "rules.json", "path to json file containing list of rulesets")
+	flag.StringVar(&KubeConfigPath, "kubeconfig", ".kube/config", "path to kubeconfig")
+	flag.StringVar(&RulesPaths, "rules", "", "comma-delimited list of paths to rulesets")
+	flag.StringVar(&ServerAddr, "server", "127.0.0.1:9000", "address of provider gRPC server")
+	flag.StringVar(&Namespaces, "namespaces", "konveyor-tackle", "comma-delimited list of namespaces to analyze")
+	flag.BoolVar(&Stop, "stop", false, "send stop signal to gRPC server after evaluating rules.")
 }
 
 func main() {
 	flag.Parse()
 	log := liblogr.WithName("k8s")
-	config := provider.Config{}
-	bytes, err := os.ReadFile(ProviderConfigPath)
-	if err != nil {
-		panic(err)
-	}
-	err = json.Unmarshal(bytes, &config)
+	config, err := ConstructProviderConfig()
 	if err != nil {
 		panic(err)
 	}
@@ -49,7 +50,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	ruleSets, err := ReadRulesets(RulesPath)
+	ruleSets, err := ReadRulesets(strings.Split(RulesPaths, ","))
 	if err != nil {
 		return
 	}
@@ -64,7 +65,39 @@ func main() {
 
 	dump, _ := json.Marshal(results)
 	fmt.Printf("%s\n", dump)
-	client.Stop()
+	if Stop {
+		client.Stop()
+	}
+}
+
+func ConstructProviderConfig() (config provider.Config, err error) {
+	kubeConfigBytes, err := os.ReadFile(KubeConfigPath)
+	if err != nil {
+		panic(err)
+	}
+
+	var namespaces []interface{}
+	for _, s := range strings.Split(Namespaces, ",") {
+		namespaces = append(namespaces, s)
+	}
+	config.Name = "k8s"
+	config.Address = ServerAddr
+	config.Proxy = &provider.Proxy{}
+	config.InitConfig = []provider.InitConfig{
+		{
+			Proxy: &provider.Proxy{},
+			ProviderSpecificConfig: map[string]interface{}{
+				"groupVersionKinds": []interface{}{
+					map[string]interface{}{"group": "apps", "version": "v1", "kind": "Deployment"},
+					map[string]interface{}{"group": "", "version": "v1", "kind": "Pod"},
+					map[string]interface{}{"group": "route.openshift.io", "version": "v1", "kind": "Route"},
+				},
+				"kubeConfig": kubeConfigBytes,
+				"namespaces": namespaces,
+			},
+		},
+	}
+	return
 }
 
 func EvaluateRuleset(svc provider.ServiceClient, rs RuleSet) (result ResultRuleset, err error) {
@@ -164,22 +197,9 @@ const (
 	RuleSuffix  = ".yaml"
 )
 
-func ReadRulesets(rulesRegistryPath string) (ruleSets []RuleSet, err error) {
-	registry := RulesRegistry{}
-	f, err := os.Open(rulesRegistryPath)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-
-	decoder := json.NewDecoder(f)
-	err = decoder.Decode(&registry)
-	if err != nil {
-		return
-	}
-
-	for _, ruleSetPath := range registry.RuleSets {
-		ruleSet, rErr := ReadRuleset(ruleSetPath)
+func ReadRulesets(paths []string) (ruleSets []RuleSet, err error) {
+	for _, p := range paths {
+		ruleSet, rErr := ReadRuleset(p)
 		if rErr != nil {
 			err = rErr
 			return
