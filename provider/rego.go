@@ -1,6 +1,12 @@
 package provider
 
-import "strings"
+import (
+	_ "embed"
+	"strings"
+)
+
+//go:embed inventory.rego
+var InventoryModule string
 
 // ModuleConditionInfo is the input for the rego.module
 // capability, which takes an entire rego module and evaluates it.

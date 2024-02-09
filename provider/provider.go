@@ -15,6 +15,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
+const (
+	ProviderName = "k8s"
+)
+
 // Capabilities
 const (
 	CapabilityRegoModule     = "rego_module"
@@ -26,9 +30,7 @@ type K8sInitConfig struct {
 	libprovider.InitConfig
 	ProviderSpecificConfig struct {
 		// path to the cluster's kube config
-		KubeConfigPath string `json:"kubeConfigPath"`
-		// path to a directory of base modules that should establish the resource collections
-		BaseModulesPath string `json:"baseModulesPath"`
+		KubeConfig []byte `json:"kubeConfig"`
 		// list of GVKs to evaluate rules against
 		GroupVersionKinds []schema.GroupVersionKind `json:"groupVersionKinds"`
 		// list of namespaces to collect resources from
@@ -74,14 +76,9 @@ func (r *K8s) Init(ctx context.Context, log logr.Logger, initCfg libprovider.Ini
 	}
 	r.ctx = ctx
 	r.log = log
-	r.baseModules = rego.Load([]string{cfg.ProviderSpecificConfig.BaseModulesPath}, nil)
+	r.baseModules = rego.Module("inventory.rego", InventoryModule)
 
-	bytes, err := os.ReadFile(cfg.ProviderSpecificConfig.KubeConfigPath)
-	if err != nil {
-		return
-	}
-
-	r.k8sClient, err = k8s.NewClient(bytes)
+	r.k8sClient, err = k8s.NewClient(cfg.ProviderSpecificConfig.KubeConfig)
 	if err != nil {
 		return
 	}
@@ -189,7 +186,7 @@ func (r *K8s) interpretResultSet(results rego.ResultSet) (resp libprovider.Provi
 	}
 	incidents, ok := results[0].Bindings["incidents"].([]interface{})
 	if !ok {
-		err = errors.New("unknown result")
+		err = errors.New("unexpected result format")
 		return
 	}
 	if len(incidents) == 0 {

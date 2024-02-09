@@ -10,7 +10,6 @@ RUN go mod download
 
 COPY cmd/ cmd/
 COPY k8s/ k8s/
-COPY modules/ modules/
 COPY provider/ provider/
 
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o k8s-provider cmd/server/main.go
@@ -20,6 +19,4 @@ FROM registry.access.redhat.com/ubi8-minimal
 RUN mkdir /opt/modules
 
 COPY --from=builder /workspace/k8s-provider /usr/local/bin/k8s-provider
-COPY --from=builder /workspace/modules /opt/modules
-
-ENTRYPOINT ["k8s-provider"]
+ENTRYPOINT k8s-provider --port ${PORT}
