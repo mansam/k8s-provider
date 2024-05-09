@@ -1,0 +1,118 @@
+- ruleID: read_only_port_enabled_updated
+  effort: 1
+  category: optional
+  message: Determines if kubelet has read-only port enabled.
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            import future.keywords.in
+
+            # CIS 4.2.4 https://workbench.cisecurity.org/sections/1126668/recommendations/1838645
+
+            deny[msga] {
+            	obj := input[_]
+            	is_kubelet_info(obj)
+
+            	command := obj.data.cmdLine
+
+            	contains(command, "--read-only-port")
+            	not contains(command, "--read-only-port=0")
+
+            	external_obj := json.filter(obj, ["apiVersion", "data/cmdLine", "kind", "metadata"])
+
+            	msga := {
+            		"alertMessage": "kubelet read-only port is not disabled",
+            		"alertScore": 4,
+            		"failedPaths": [],
+            		"fixPaths": [],
+            		"packagename": "policy",
+            		"alertObject": external_obj,
+            	}
+            }
+
+            deny[msga] {
+            	obj := input[_]
+            	is_kubelet_info(obj)
+
+            	command := obj.data.cmdLine
+
+            	not contains(obj, "--read-only-port")
+            	contains(command, "--config")
+
+            	decodedConfigContent := base64.decode(obj.data.configFile.content)
+            	yamlConfig := yaml.unmarshal(decodedConfigContent)
+
+            	yamlConfig.readOnlyPort
+            	not yamlConfig.readOnlyPort == 0
+
+            	msga := {
+            		"alertMessage": "kubelet read-only port is not disabled",
+            		"alertScore": 4,
+            		"reviewPaths": ["readOnlyPort"],
+            		"failedPaths": ["readOnlyPort"],
+            		"fixPaths": [],
+            		"packagename": "policy",
+            		"alertObject": {"externalObjects": {
+            			"apiVersion": obj.apiVersion,
+            			"kind": obj.kind,
+            			"metadata": obj.metadata,
+            			"data": {"configFile": {"content": decodedConfigContent}},
+            		}},
+            	}
+            }
+
+            ## Host sensor failed to get config file content
+            deny[msga] {
+            	obj := input[_]
+            	is_kubelet_info(obj)
+
+            	command := obj.data.cmdLine
+
+            	not contains(obj, "--read-only-port")
+            	contains(command, "--config")
+
+            	not obj.data.configFile.content
+
+            	msga := {
+            		"alertMessage": "Failed to analyze config file",
+            		"alertScore": 4,
+            		"failedPaths": [],
+            		"fixPaths": [],
+            		"packagename": "policy",
+            		"alertObject": {"externalObjects": {
+            			"apiVersion": obj.apiVersion,
+            			"kind": obj.kind,
+            			"data": obj.data,
+            		}},
+            	}
+            }
+
+            is_kubelet_info(obj) {
+            	obj.kind == "KubeletInfo"
+            	obj.apiVersion == "hostdata.kubescape.cloud/v1beta0"
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }

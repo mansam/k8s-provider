@@ -1,0 +1,118 @@
+- ruleID: kubelet_ip_tables
+  effort: 1
+  category: optional
+  message: Ensures that the --make-iptables-util-chains argument is set to true.
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            import future.keywords.in
+
+            # CIS 4.2.7 https://workbench.cisecurity.org/sections/1126668/recommendations/1838651
+
+            deny[msga] {
+            	obj := input[_]
+            	is_kubelet_info(obj)
+
+            	command := obj.data.cmdLine
+
+            	contains(command, "--make-iptables-util-chains")
+            	not contains(command, "--make-iptables-util-chains=true")
+
+            	external_obj := json.filter(obj, ["apiVersion", "data/cmdLine", "kind", "metadata"])
+
+            	msga := {
+            		"alertMessage": "Argument --make-iptables-util-chains is not set to true.",
+            		"alertScore": 3,
+            		"reviewPaths": [],
+            		"failedPaths": [],
+            		"fixPaths": [],
+            		"packagename": "policy",
+            		"alertObject": {"externalObjects": external_obj},
+            	}
+            }
+
+            deny[msga] {
+            	obj := input[_]
+            	is_kubelet_info(obj)
+
+            	command := obj.data.cmdLine
+
+            	not contains(command, "--make-iptables-util-chains")
+            	contains(command, "--config")
+
+            	decodedConfigContent := base64.decode(obj.data.configFile.content)
+            	yamlConfig := yaml.unmarshal(decodedConfigContent)
+            	not yamlConfig.makeIPTablesUtilChains == true
+
+            	msga := {
+            		"alertMessage": "Property makeIPTablesUtilChains is not set to true",
+            		"alertScore": 3,
+            		"reviewPaths": ["makeIPTablesUtilChains"],
+            		"failedPaths": ["makeIPTablesUtilChains"],
+            		"fixPaths": [],
+            		"packagename": "policy",
+            		"alertObject": {"externalObjects": {
+            			"apiVersion": obj.apiVersion,
+            			"kind": obj.kind,
+            			"metadata": obj.metadata,
+            			"data": {"configFile": {"content": decodedConfigContent}},
+            		}},
+            	}
+            }
+
+            ## Host sensor failed to get config file content
+            deny[msga] {
+            	obj := input[_]
+            	is_kubelet_info(obj)
+
+            	command := obj.data.cmdLine
+
+            	not contains(command, "--make-iptables-util-chains")
+            	contains(command, "--config")
+
+            	not obj.data.configFile.content
+
+            	msga := {
+            		"alertMessage": "Failed to analyze config file",
+            		"alertScore": 6,
+            		"reviewPaths": [],
+            		"failedPaths": [],
+            		"fixPaths": [],
+            		"packagename": "policy",
+            		"alertObject": {"externalObjects": {
+            			"apiVersion": obj.apiVersion,
+            			"kind": obj.kind,
+            			"data": obj.data,
+            		}},
+            	}
+            }
+
+            is_kubelet_info(obj) {
+            	obj.kind == "KubeletInfo"
+            	obj.apiVersion == "hostdata.kubescape.cloud/v1beta0"
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }

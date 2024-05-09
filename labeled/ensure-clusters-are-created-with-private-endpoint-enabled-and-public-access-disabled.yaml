@@ -1,0 +1,68 @@
+- ruleID: ensure_clusters_are_created_with_private_endpoint_enabled_and_public_access_disabled
+  effort: 1
+  category: optional
+  message: Disable access to the Kubernetes API from outside the node network if it is not required.
+  labels:
+    - eks
+    - kubernetes
+    - kubescape
+    - konveyor.io/target=openshift
+    - konveyor.io/target=kubernetes
+    - konveyor.io/target=eks
+  description: Ensure Clusters Are Created With Private Endpoint Enabled And Public Access Disabled
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            # fails in case privateEndpoint.id parameter is not found on ClusterDescribe
+            deny[msga] {
+            	obj := input[_]
+            	obj.apiVersion == "management.azure.com/v1"
+            	obj.kind == "ClusterDescribe"
+            	obj.metadata.provider == "aks"
+            	config = obj.data
+
+            	not isPrivateEndpointEnabled(config)
+
+            	msga := {
+                	"alertMessage": "Private endpoint not enabled.",
+                	"packagename": "policy",
+                	"alertScore": 7,
+                	"failedPaths": [],
+                	"fixPaths":[],
+                    "fixCommand": "",
+                	"alertObject": {
+            			"externalObjects": obj
+                    }
+                }
+            }
+
+            isPrivateEndpointEnabled(config) {
+            	config.properties.privateEndpoint.id
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+        resources: []
+        defaults: false

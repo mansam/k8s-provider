@@ -1,0 +1,51 @@
+- ruleID: naked_pods
+  effort: 1
+  category: optional
+  message: Don't use naked Pods (that is, Pods not bound to a ReplicaSet or Deployment) if you can avoid it. Naked Pods will not be rescheduled in the event of a node failure.
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+
+            # Fails if workload is Pod
+            deny[msga] {
+                pod := input[_]
+            	pod.kind == "Pod"
+            	not pod.metadata.ownerReferences
+            	msga := {
+            		"alertMessage": sprintf("Pod: %v not associated with ReplicaSet or Deployment", [pod.metadata.name]),
+            		"packagename": "policy",
+            		"alertScore": 3,
+            		"failedPaths": [],
+            		"fixPaths": [],
+            		"alertObject": {
+            			"k8sApiObjects": [pod]
+            		}
+            	}
+            }
+
+
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }

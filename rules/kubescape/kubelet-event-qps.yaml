@@ -1,0 +1,99 @@
+- ruleID: kubelet_event_qps
+  effort: 1
+  category: optional
+  message: Ensure that the --event-qps argument is set to 0 or a level which ensures appropriate event capture.
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            import future.keywords.in
+
+            # CIS 4.2.9 https://workbench.cisecurity.org/sections/1126668/recommendations/1838656
+
+            # if --event-qps is present rule should pass
+            deny[msga] {
+            	obj := input[_]
+            	is_kubelet_info(obj)
+
+            	command := obj.data.cmdLine
+
+            	# "--event-qps" is DEPRECATED
+            	# not contains(command, "--event-qps")
+            	contains(command, "--config")
+
+            	decodedConfigContent := base64.decode(obj.data.configFile.content)
+            	yamlConfig := yaml.unmarshal(decodedConfigContent)
+            	yamlConfig.eventRecordQPS == 0
+
+            	msga := {
+            		"alertMessage": "Value of the eventRecordQPS argument is set to 0",
+            		"alertScore": 2,
+            		"reviewPaths": ["eventRecordQPS"],
+            		"failedPaths": ["eventRecordQPS"],
+            		"fixPaths": [],
+            		"packagename": "policy",
+            		"alertObject": {"externalObjects": {
+            			"apiVersion": obj.apiVersion,
+            			"kind": obj.kind,
+            			"metadata": obj.metadata,
+            			"data": {"configFile": {"content": decodedConfigContent}},
+            		}},
+            	}
+            }
+
+            ## Host sensor failed to get config file content
+            deny[msga] {
+            	obj := input[_]
+            	is_kubelet_info(obj)
+
+            	command := obj.data.cmdLine
+
+            	# "--event-qps" is DEPRECATED
+            	# not contains(command, "--event-qps")
+            	contains(command, "--config")
+
+            	not obj.data.configFile.content
+
+            	msga := {
+            		"alertMessage": "Failed to analyze config file",
+            		"alertScore": 2,
+            		"reviewPaths": [],
+            		"failedPaths": [],
+            		"fixPaths": [],
+            		"packagename": "policy",
+            		"alertObject": {"externalObjects": {
+            			"apiVersion": obj.apiVersion,
+            			"kind": obj.kind,
+            			"data": obj.data,
+            		}},
+            	}
+            }
+
+            is_kubelet_info(obj) {
+            	obj.kind == "KubeletInfo"
+            	obj.apiVersion == "hostdata.kubescape.cloud/v1beta0"
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }

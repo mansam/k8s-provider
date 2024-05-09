@@ -1,0 +1,154 @@
+- ruleID: encrypt_traffic_to_https_load_balancers_with_tls_certificates
+  effort: 1
+  category: optional
+  message: Encrypt traffic to HTTPS load balancers using TLS certificates.
+  labels:
+    - eks
+    - kubernetes
+    - kubescape
+    - konveyor.io/target=openshift
+    - konveyor.io/target=kubernetes
+    - konveyor.io/target=eks
+  description: Encrypt Traffic to HTTPS Load Balancers using TLS Certificates
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            # fails in case of 'Services' of type 'LoadBalancer' are not found.
+            deny[msga] {
+            	svc := input[_]
+            	svc.kind == "Service"
+            	svc.spec.type != "LoadBalancer"
+
+            	msga := {
+            		"alertMessage": "No LoadBalancer service found.",
+                	"packagename": "policy",
+                	"alertScore": 7,
+                	"failedPaths": [],
+                	"fixPaths":[],
+            		"alertObject": {
+            			"k8sApiObjects": [svc]
+            		}
+            	}
+            }
+
+            # fails in case 'Service' object has not 'service.beta.kubernetes.io/azure-load-balancer-internal' annotation.
+            deny[msga] {
+            	svc := input[_]
+            	svc.kind == "Service"
+            	svc.spec.type == "LoadBalancer"
+            	not svc.metadata.annotations["service.beta.kubernetes.io/azure-load-balancer-internal"]
+            	path := "metadata.annotations[service.beta.kubernetes.io/azure-load-balancer-internal]"
+
+            	msga := {
+                	"alertMessage": "Service object LoadBalancer has not 'service.beta.kubernetes.io/azure-load-balancer-internal' annotation.",
+                	"packagename": "policy",
+                	"alertScore": 7,
+                	"failedPaths": [],
+                	"fixPaths":[{"path": path, "value": "true"}],
+                	"alertObject": {
+            			"k8sApiObjects": [svc]
+                    }
+                }
+            }
+
+            # fails in case 'Service' object has annotation 'service.beta.kubernetes.io/azure-load-balancer-internal' != 'true'.
+            deny[msga] {
+            	svc := input[_]
+            	svc.kind == "Service"
+            	svc.spec.type == "LoadBalancer"
+            	svc.metadata.annotations["service.beta.kubernetes.io/azure-load-balancer-internal"] != "true"
+            	path := "metadata.annotations[service.beta.kubernetes.io/azure-load-balancer-internal]"
+
+            	msga := {
+                	"alertMessage": "Service object LoadBalancer has annotation 'service.beta.kubernetes.io/azure-load-balancer-internal' != 'true'.",
+                	"packagename": "policy",
+                	"alertScore": 7,
+                	"failedPaths": [],
+                	"fixPaths":[{"path": path, "value": "true"}],
+                	"alertObject": {
+            			"k8sApiObjects": [svc]
+                    }
+                }
+            }
+
+            # fails in case 'Ingress' object has spec.tls value not set.
+            deny[msga] {
+            	svc := input[_]
+            	svc.kind == "Service"
+            	svc.spec.type == "LoadBalancer"
+            	svc.metadata.annotations["service.beta.kubernetes.io/azure-load-balancer-internal"] == "true"
+
+            	ingress := input[_]
+            	ingress.kind == "Ingress"
+            	not isTLSSet(ingress.spec)
+
+            	msga := {
+                	"alertMessage": "Ingress object has 'spec.tls' value not set.",
+                	"packagename": "policy",
+                	"alertScore": 7,
+            		"reviewPaths": ["spec.tls"],
+                	"failedPaths": ["spec.tls"],
+                	"fixPaths":[],
+                	"alertObject": {
+            			"k8sApiObjects": [ingress]
+                    }
+                }
+            }
+
+            # fails in case 'Ingress' object has annotation 'kubernetes.io/ingress.class' != 'azure/application-gateway'.
+            deny[msga] {
+            	svc := input[_]
+            	svc.kind == "Service"
+            	svc.spec.type == "LoadBalancer"
+            	svc.metadata.annotations["service.beta.kubernetes.io/azure-load-balancer-internal"] == "true"
+
+            	ingress := input[_]
+            	ingress.kind == "Ingress"
+            	isTLSSet(ingress.spec)
+            	ingress.metadata.annotations["kubernetes.io/ingress.class"] != "azure/application-gateway"
+
+            	path := "metadata.annotations[kubernetes.io/ingress.class]"
+
+            	msga := {
+                	"alertMessage": "Ingress object has annotation 'kubernetes.io/ingress.class' != 'azure/application-gateway'.",
+                	"packagename": "policy",
+                	"alertScore": 7,
+                	"failedPaths": [],
+                	"fixPaths":[{"path": path, "value": "azure/application-gateway"}],
+                    "fixCommand": "",
+                	"alertObject": {
+            			"k8sApiObjects": [ingress]
+                    }
+                }
+            }
+
+            isTLSSet(spec) {
+            	count(spec.tls) > 0
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+        resources: []
+        defaults: false

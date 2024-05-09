@@ -1,0 +1,137 @@
+- ruleID: alert_rw_hostpath
+  effort: 1
+  category: optional
+  message: determines if any workload contains a hostPath volume with rw permissions
+  when:
+    k8s-resource.rego_module:
+        resources:
+            - kind: Pod
+              version: v1
+            - kind: Job
+              group: batch
+              version: v1
+            - kind: ReplicaSet
+              group: apps
+              version: v1
+            - kind: DaemonSet
+              group: apps
+              version: v1
+            - kind: StatefulSet
+              group: apps
+              version: v1
+            - kind: Deployment
+              group: apps
+              version: v1
+            - kind: CronJob
+              group: batch
+              version: v1
+        module: |-
+            package policy
+
+            # Fails if container has a hostPath volume which is not readOnly
+
+            deny[msga] {
+                pod := input[_]
+                pod.kind == "Pod"
+                volumes := pod.spec.volumes
+                volume := volumes[_]
+                volume.hostPath
+            	container := pod.spec.containers[i]
+            	volume_mount := container.volumeMounts[k]
+            	volume_mount.name == volume.name
+            	start_of_path := "spec."
+            	fix_path := is_rw_mount(volume_mount, start_of_path,  i, k)
+
+                podname := pod.metadata.name
+
+            	msga := {
+            		"alertMessage": sprintf("pod: %v has: %v as hostPath volume", [podname, volume.name]),
+            		"packagename": "policy",
+            		"alertScore": 7,
+            		"fixPaths": [fix_path],
+            		"alertObject": {
+            			"k8sApiObjects": [pod]
+            		}
+            	}
+            }
+
+            # handles majority of workload resources
+            deny[msga] {
+            	wl := input[_]
+            	spec_template_spec_patterns := {"Deployment","ReplicaSet","DaemonSet","StatefulSet","Job"}
+            	spec_template_spec_patterns[wl.kind]
+                volumes := wl.spec.template.spec.volumes
+                volume := volumes[_]
+                volume.hostPath
+            	container := wl.spec.template.spec.containers[i]
+            	volume_mount := container.volumeMounts[k]
+            	volume_mount.name == volume.name
+            	start_of_path := "spec.template.spec."
+            	fix_path := is_rw_mount(volume_mount, start_of_path,  i, k)
+
+            	msga := {
+            		"alertMessage": sprintf("%v: %v has: %v as hostPath volume", [wl.kind, wl.metadata.name, volume.name]),
+            		"packagename": "policy",
+            		"alertScore": 7,
+            		"fixPaths": [fix_path],
+            		"alertObject": {
+            			"k8sApiObjects": [wl]
+            		}
+
+            	}
+            }
+
+            # handles CronJobs
+            deny[msga] {
+            	wl := input[_]
+            	wl.kind == "CronJob"
+                volumes := wl.spec.jobTemplate.spec.template.spec.volumes
+                volume := volumes[_]
+                volume.hostPath
+
+            	container = wl.spec.jobTemplate.spec.template.spec.containers[i]
+            	volume_mount := container.volumeMounts[k]
+            	volume_mount.name == volume.name
+            	start_of_path := "spec.jobTemplate.spec.template.spec."
+            	fix_path := is_rw_mount(volume_mount, start_of_path,  i, k)
+
+
+            	msga := {
+            	"alertMessage": sprintf("%v: %v has: %v as hostPath volume", [wl.kind, wl.metadata.name, volume.name]),
+            	"packagename": "policy",
+            	"alertScore": 7,
+            	"fixPaths": [fix_path],
+            	"alertObject": {
+            			"k8sApiObjects": [wl]
+            		}
+            	}
+            }
+
+
+            is_rw_mount(mount, start_of_path,  i, k) = fix_path {
+            	not mount.readOnly == true
+                fix_path = {"path": sprintf("%vcontainers[%v].volumeMounts[%v].readOnly", [start_of_path, i, k]), "value":"true"}
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }

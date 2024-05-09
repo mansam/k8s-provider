@@ -1,0 +1,67 @@
+- ruleID: internal_networking
+  effort: 1
+  category: optional
+  message: lists namespaces in which no network policies are defined
+  labels:
+    - eks
+    - kubernetes
+    - kubescape
+    - konveyor.io/target=openshift
+    - konveyor.io/target=kubernetes
+    - konveyor.io/target=eks
+  description: Internal Networking
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            # input: network policies
+            # apiversion: networking.k8s.io/v1
+            # fails if no network policies are defined in a certain namespace
+
+            deny[msga] {
+            	namespaces := [namespace | namespace = input[_]; namespace.kind == "Namespace"]
+            	namespace := namespaces[_]
+            	policy_names := [policy.metadata.namespace | policy = input[_]; policy.kind == "NetworkPolicy"]
+            	not list_contains(policy_names, namespace.metadata.name)
+
+            	msga := {
+            		"alertMessage": sprintf("no policy is defined for namespace %v", [namespace.metadata.name]),
+            		"alertScore": 9,
+            		"packagename": "policy",
+            		"failedPaths": [],
+            		"fixPaths": [],
+            		"alertObject": {
+            			"k8sApiObjects": [namespace]
+            		}
+            	}
+            }
+
+            list_contains(list, element) {
+              some i
+              list[i] == element
+            }
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+        resources: []
+        defaults: false

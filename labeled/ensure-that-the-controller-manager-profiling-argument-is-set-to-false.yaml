@@ -1,0 +1,17 @@
+- ruleID: ensure_that_the_controller_manager_profiling_argument_is_set_to_false
+  effort: 1
+  category: optional
+  message: Disable profiling, if not needed.
+  labels:
+    - eks
+    - kubernetes
+    - kubescape
+    - konveyor.io/target=openshift
+    - konveyor.io/target=kubernetes
+    - konveyor.io/target=eks
+  description: Ensure That The Controller Manager Profiling Argument Is Set To False
+  when:
+    k8s-resource.rego_module:
+        module: "package policy\r\n\r\nimport future.keywords.in\r\n\r\ndeny[msg] {\r\n\tobj = input[_]\r\n\tis_controller_manager(obj)\r\n\tresult = invalid_flag(obj.spec.containers[0].command)\r\n\tmsg := {\r\n\t\t\"alertMessage\": \"profiling is enabled for the kube-controller-manager\",\r\n\t\t\"alertScore\": 2,\r\n\t\t\"reviewPaths\": result.failed_paths,\r\n\t\t\"failedPaths\": result.failed_paths,\r\n\t\t\"fixPaths\": result.fix_paths,\r\n\t\t\"packagename\": \"policy\",\r\n\t\t\"alertObject\": {\"k8sApiObjects\": [obj]},\r\n\t}\r\n}\r\n\r\nis_controller_manager(obj) {\r\n\tobj.apiVersion == \"v1\"\r\n\tobj.kind == \"Pod\"\r\n\tobj.metadata.namespace == \"kube-system\"\r\n\tcount(obj.spec.containers) == 1\r\n\tcount(obj.spec.containers[0].command) > 0\r\n\tendswith(obj.spec.containers[0].command[0], \"kube-controller-manager\")\r\n}\r\n\r\n# Assume flag set only once\r\ninvalid_flag(cmd) = result {\r\n\tcmd[i] == \"--profiling=true\"\r\n\tpath := sprintf(\"spec.containers[0].command[%d]\", [i])\r\n\tresult = {\r\n\t\t\"failed_paths\": [path],\r\n\t\t\"fix_paths\": [{\"path\": path, \"value\": \"--profiling=false\"}],\r\n\t}\r\n}\r\n\r\ninvalid_flag(cmd) = result {\r\n\tfull_cmd = concat(\" \", cmd)\r\n\tnot contains(full_cmd, \"--profiling\")\r\n\tpath := sprintf(\"spec.containers[0].command[%d]\", [count(cmd)])\r\n\tresult = {\r\n\t\t\"failed_paths\": [],\r\n\t\t\"fix_paths\": [{\r\n\t\t\t\"path\": path,\r\n\t\t\t\"value\": \"--profiling=false\",\r\n\t\t}],\r\n\t}\r\n}\r\n\nincidents[msg] {\n  violation := deny[_]\n  apiObjects := object.get(violation.alertObject, \"k8sApiObjects\", false)\n  item := apiObjects[_]\n  msg := {\n\t  \"apiVersion\": item.apiVersion,\n\t\t\"namespace\": item.metadata.namespace,\n\t\t\"kind\": item.kind,\n\t\t\"name\": item.metadata.name,\n  }\n}\n\nincidents[msg] {\n  violation := deny[_]\n  item := object.get(violation.alertObject, \"externalObjects\", false)\n  msg := {\n\t  \"apiVersion\": item.apiVersion,\n\t\t\"namespace\": item.metadata.namespace,\n\t\t\"kind\": item.kind,\n\t\t\"name\": item.metadata.name,\n  }\n}"
+        resources: []
+        defaults: false

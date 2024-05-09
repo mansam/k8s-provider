@@ -1,0 +1,60 @@
+- ruleID: rule_access_dashboard_subject_v1
+  effort: 1
+  category: optional
+  message: fails if subject that is not dashboard service account is bound to dashboard role/clusterrole, or- if anyone that is not dashboard pod is associated with its service account.
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            # input: regoResponseVectorObject
+            # fails if a subject that is not dashboard service account is bound to dashboard role
+
+            deny[msga] {
+            	subjectVector := input[_]
+            	role := subjectVector.relatedObjects[i]
+            	rolebinding := subjectVector.relatedObjects[j]
+            	endswith(subjectVector.relatedObjects[i].kind, "Role")
+            	endswith(subjectVector.relatedObjects[j].kind, "Binding")
+
+            	role.metadata.name == "kubernetes-dashboard"
+            	subjectVector.name != "kubernetes-dashboard"
+
+            	subject := rolebinding.subjects[k]
+                path := [sprintf("relatedObjects[%v].subjects[%v]", [format_int(j, 10), format_int(k, 10)])]
+            	finalpath := array.concat(path, [sprintf("relatedObjects[%v].roleRef.name", [format_int(j, 10)])])
+            	msga := {
+            		"alertMessage": sprintf("Subject: %v-%v is bound to dashboard role/clusterrole", [subjectVector.kind, subjectVector.name]),
+            		"alertScore": 9,
+            		"reviewPaths": finalpath,
+            		"failedPaths": finalpath,
+            		"fixPaths": [],
+            		"packagename": "policy",
+            		"alertObject": {
+            			"k8sApiObjects": [],
+            			"externalObjects": subjectVector
+            		}
+            	}
+            }
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }

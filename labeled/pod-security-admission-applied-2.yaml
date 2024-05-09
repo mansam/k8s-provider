@@ -1,0 +1,73 @@
+- ruleID: pod_security_admission_applied_2
+  effort: 1
+  category: optional
+  message: Checks that every namespace enabled pod security admission, or if there are external policies applied for namespaced resources (validating/mutating webhooks)
+  labels:
+    - eks
+    - kubernetes
+    - kubescape
+    - konveyor.io/target=openshift
+    - konveyor.io/target=kubernetes
+    - konveyor.io/target=eks
+  description: Pod Security Admission Applied 2
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+            import future.keywords.every
+
+            # Fails if no 3rd party security admission exists and namespace does not have relevant labels
+            deny[msga] {
+                not has_external_policy_control(input)
+            	namespace := input[_]
+            	namespace.kind == "Namespace"
+            	not admission_policy_enabled(namespace)
+            	fix_path = {"path": "metadata.labels[pod-security.kubernetes.io/enforce]", "value": "YOUR_VALUE"}
+
+
+            	msga := {
+            		"alertMessage": sprintf("Namespace: %v does not enable pod security admission", [namespace.metadata.name]),
+            		"packagename": "policy",
+            		"alertScore": 7,
+            		"failedPaths": [],
+            		"fixPaths": [fix_path],
+            		"alertObject": {
+            			"k8sApiObjects": [namespace]
+            		}
+            	}
+            }
+
+            admission_policy_enabled(namespace){
+            	some label, _ in namespace.metadata.labels
+                startswith(label, "pod-security.kubernetes.io/enforce")
+            }
+
+            has_external_policy_control(inp){
+                admissionwebhook := inp[_]
+                admissionwebhook.kind in ["ValidatingWebhookConfiguration", "MutatingWebhookConfiguration"]
+                admissionwebhook.webhooks[i].rules[j].scope != "Cluster"
+            }
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+        resources: []
+        defaults: false

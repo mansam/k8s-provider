@@ -1,0 +1,149 @@
+- ruleID: image_pull_policy_is_not_set_to_always
+  effort: 1
+  category: optional
+  message: check imagePullPolicy filed, if imagePullPolicy = always pass, else fail.
+  labels:
+    - eks
+    - kubernetes
+    - kubescape
+    - konveyor.io/target=openshift
+    - konveyor.io/target=kubernetes
+    - konveyor.io/target=eks
+  description: Image Pull Policy Is Not Set To Always
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+
+            deny[msga] {
+                pod := input[_]
+                pod.kind == "Pod"
+            	container := pod.spec.containers[i]
+                is_bad_container(container)
+            	paths = [sprintf("spec.containers[%v].image", [format_int(i, 10)]), sprintf("spec.containers[%v].imagePullPolicy", [format_int(i, 10)])]
+            	msga := {
+            		"alertMessage": sprintf("container: %v in pod: %v  has 'latest' tag on image but imagePullPolicy is not set to 'Always'", [container.name, pod.metadata.name]),
+            		"packagename": "policy",
+            		"alertScore": 2,
+            		"reviewPaths": paths,
+            		"failedPaths": paths,
+            		"fixPaths":[],
+            		"alertObject": {
+            			"k8sApiObjects": [pod]
+            		}
+            	}
+            }
+
+            deny[msga] {
+                wl := input[_]
+            	spec_template_spec_patterns := {"Deployment","ReplicaSet","DaemonSet","StatefulSet","Job"}
+            	spec_template_spec_patterns[wl.kind]
+            	container := wl.spec.template.spec.containers[i]
+            	paths = [sprintf("spec.template.spec.containers[%v].image", [format_int(i, 10)]), sprintf("spec.template.spec.containers[%v].imagePullPolicy", [format_int(i, 10)])]
+                is_bad_container(container)
+            	msga := {
+            		"alertMessage": sprintf("container: %v in %v: %v  has 'latest' tag on image but imagePullPolicy is not set to 'Always'", [container.name, wl.kind, wl.metadata.name]),
+            		"packagename": "policy",
+            		"alertScore": 2,
+            		"reviewPaths": paths,
+            		"failedPaths": paths,
+            		"fixPaths":[],
+            		"alertObject": {
+            			"k8sApiObjects": [wl]
+            		}
+            	}
+            }
+
+            deny[msga] {
+                wl := input[_]
+            	wl.kind == "CronJob"
+            	container := wl.spec.jobTemplate.spec.template.spec.containers[i]
+            	paths = [sprintf("spec.jobTemplate.spec.template.spec.containers[%v].image", [format_int(i, 10)]), sprintf("spec.jobTemplate.spec.template.spec.containers[%v].imagePullPolicy", [format_int(i, 10)])]
+                is_bad_container(container)
+            	msga := {
+            		"alertMessage": sprintf("container: %v in cronjob: %v  has 'latest' tag on image but imagePullPolicy is not set to 'Always'", [container.name, wl.metadata.name]),
+            		"packagename": "policy",
+            		"alertScore": 2,
+            		"reviewPaths": paths,
+            		"failedPaths": paths,
+            		"fixPaths":[],
+            		"alertObject": {
+            			"k8sApiObjects": [wl]
+            		}
+            	}
+            }
+
+            # image tag is latest
+            is_bad_container(container){
+                reg := ":[\\w][\\w.-]{0,127}(\/)?"
+                version := regex.find_all_string_submatch_n(reg, container.image, -1)
+                v := version[_]
+                img := v[_]
+                img == ":latest"
+                not_image_pull_policy(container)
+            }
+
+            # No image tag or digest (== latest)
+            is_bad_container(container){
+                not is_tag_image(container.image)
+                not_image_pull_policy(container)
+            }
+
+            # image tag is only letters (== latest)
+            is_bad_container(container){
+                is_tag_image_only_letters(container.image)
+                not_image_pull_policy(container)
+            }
+
+            not_image_pull_policy(container) {
+                 container.imagePullPolicy == "Never"
+            }
+
+
+            not_image_pull_policy(container) {
+                 container.imagePullPolicy == "IfNotPresent"
+            }
+
+            is_tag_image(image) {
+                reg := ":[\\w][\\w.-]{0,127}(\/)?"
+                version := regex.find_all_string_submatch_n(reg, image, -1)
+                v := version[_]
+                img := v[_]
+                not endswith(img, "/")
+            }
+
+            # The image has a tag, and contains only letters
+            is_tag_image_only_letters(image) {
+                reg := ":[\\w][\\w.-]{0,127}(\/)?"
+                version := regex.find_all_string_submatch_n(reg, image, -1)
+                v := version[_]
+                img := v[_]
+            	reg1 := "^:[a-zA-Z]{1,127}$"
+            	re_match(reg1, img)
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+        resources: []
+        defaults: false

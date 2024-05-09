@@ -1,0 +1,57 @@
+- ruleID: list_all_validating_webhooks
+  effort: 1
+  category: optional
+  message: Returns validating webhook configurations to be verified
+  labels:
+    - eks
+    - kubernetes
+    - kubescape
+    - konveyor.io/target=openshift
+    - konveyor.io/target=kubernetes
+    - konveyor.io/target=eks
+  description: List All Validating Webhooks
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+
+            deny [msga] {
+                admissionwebhooks := [admissionwebhook | admissionwebhook = input[_]; admissionwebhook.kind == "ValidatingWebhookConfiguration"]
+                admissionwebhook := admissionwebhooks[_]
+
+                	msga := {
+            		"alertMessage": sprintf("The following validating webhook configuration should be checked %v.", [admissionwebhook.metadata.name]),
+            		"alertScore": 6,
+            		"packagename": "policy",
+            		"failedPaths": [],
+            		"fixPaths": [],
+            		"alertObject": {
+            			"k8sApiObjects": [admissionwebhook]
+            		}
+            	}
+            }
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+        resources: []
+        defaults: false

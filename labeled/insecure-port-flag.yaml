@@ -1,0 +1,68 @@
+- ruleID: insecure_port_flag
+  effort: 1
+  category: optional
+  message: fails if the api server has insecure-port enabled
+  labels:
+    - eks
+    - kubernetes
+    - kubescape
+    - konveyor.io/target=openshift
+    - konveyor.io/target=kubernetes
+    - konveyor.io/target=eks
+  description: Insecure Port Flag
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+
+
+            # Fails if pod has insecure-port flag enabled
+            deny[msga] {
+                pod := input[_]
+                pod.kind == "Pod"
+            	contains(pod.metadata.name, "kube-apiserver")
+                container := pod.spec.containers[i]
+            	path = is_insecure_port_flag(container, i)
+            	msga := {
+            		"alertMessage": sprintf("The API server container: %v has insecure-port flag enabled", [ container.name]),
+            		"packagename": "policy",
+            		"alertScore": 7,
+            		"reviewPaths": [path],
+            		"failedPaths": [path],
+            		"fixPaths": [],
+            		"alertObject": {
+            			"k8sApiObjects": [pod]
+            		}
+            	}
+            }
+
+            is_insecure_port_flag(container, i) = path {
+            	command := container.command[j]
+            	contains(command, "--insecure-port=1")
+            	path := sprintf("spec.containers[%v].command[%v]", [format_int(i, 10), format_int(j, 10)])
+            }
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+        resources: []
+        defaults: false

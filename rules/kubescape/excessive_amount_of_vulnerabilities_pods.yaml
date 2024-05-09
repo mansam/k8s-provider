@@ -1,0 +1,92 @@
+- ruleID: excessive_amount_of_vulnerabilities_pods
+  effort: 1
+  category: optional
+  message: determines which users have permissions to exec into pods
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            deny[msga] {
+              pods    := [ x | x = input[_]; x.kind == "Pod" ]
+              vulns   := [ x | x = input[_]; x.kind == "ImageVulnerabilities"]
+
+              pod     := pods[_]
+              vuln    := vulns[_]
+
+              # vuln data is relevant
+              count(vuln.data) > 0
+
+              # get container image name
+              container := pod.spec.containers[i]
+
+              # image has vulnerabilities
+              container.image == vuln.metadata.name
+
+              # Has ^ amount of vulnerabilities
+              check_num_vulnerabilities(vuln)
+
+              related_objects := [pod, vuln]
+
+              path := sprintf("status.containerStatuses[%v].imageID", [format_int(i, 10)])
+
+              metadata = {
+              	"name": pod.metadata.name,
+              	"namespace": pod.metadata.namespace
+              }
+
+              external_objects = {
+              	"apiVersion": "result.vulnscan.com/v1",
+              	"kind": pod.kind,
+              	"metadata": metadata,
+              	"relatedObjects": related_objects
+              }
+
+              msga := {
+              	"alertMessage": sprintf("pod '%v' exposed with critical vulnerabilities", [pod.metadata.name]),
+              	"packagename": "policy",
+              	"alertScore": 7,
+                "reviewPaths": [path],
+              	"failedPaths": [path],
+              	"fixPaths": [],
+              	"alertObject": {
+                  "externalObjects": external_objects
+              	}
+              }
+            }
+
+            check_num_vulnerabilities(vuln) {
+              exists := count([ x | x = vuln.data[_]; x.severity == "Critical" ])
+
+              str_max := data.postureControlInputs.max_critical_vulnerabilities[_]
+              exists > to_number(str_max)
+            }
+
+            check_num_vulnerabilities(vuln) {
+              exists := count([ x | x = vuln.data[_]; x.severity == "High" ])
+
+              str_max := data.postureControlInputs.max_high_vulnerabilities[_]
+              exists > to_number(str_max)
+            }
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }

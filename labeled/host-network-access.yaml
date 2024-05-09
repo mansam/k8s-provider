@@ -1,0 +1,102 @@
+- ruleID: host_network_access
+  effort: 1
+  category: optional
+  message: fails if pod has hostNetwork  enabled
+  labels:
+    - eks
+    - kubernetes
+    - kubescape
+    - konveyor.io/target=openshift
+    - konveyor.io/target=kubernetes
+    - konveyor.io/target=eks
+  description: Host Network Access
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            # Fails if pod has hostNetwork enabled
+            deny[msga] {
+                pods := [ pod | pod = input[_] ; pod.kind == "Pod"]
+                pod := pods[_]
+
+            	is_host_network(pod.spec)
+            	path := "spec.hostNetwork"
+                msga := {
+            	"alertMessage": sprintf("Pod: %v is connected to the host network", [pod.metadata.name]),
+            		"alertScore": 9,
+            		"deletePaths": [path],
+            		"failedPaths": [path],
+            		"fixPaths":[],
+            		"packagename": "policy",
+            		"alertObject": {
+            			"k8sApiObjects": [pod]
+            		}
+            	}
+            }
+
+            # Fails if workload has hostNetwork enabled
+            deny[msga] {
+                wl := input[_]
+            	spec_template_spec_patterns := {"Deployment","ReplicaSet","DaemonSet","StatefulSet","Job"}
+            	is_host_network(wl.spec.template.spec)
+            	path := "spec.template.spec.hostNetwork"
+                msga := {
+            	"alertMessage": sprintf("%v: %v has a pod connected to the host network", [wl.kind, wl.metadata.name]),
+            		"alertScore": 9,
+            		"deletePaths": [path],
+            		"failedPaths": [path],
+            		"fixPaths":[],
+            		"packagename": "policy",
+            		"alertObject": {
+            			"k8sApiObjects": [wl]
+            		}
+            	}
+            }
+
+            # Fails if cronjob has hostNetwork enabled
+            deny[msga] {
+            	wl := input[_]
+            	wl.kind == "CronJob"
+            	is_host_network(wl.spec.jobTemplate.spec.template.spec)
+            	path := "spec.jobTemplate.spec.template.spec.hostNetwork"
+                msga := {
+            	"alertMessage": sprintf("CronJob: %v has a pod connected to the host network", [wl.metadata.name]),
+            		"alertScore": 9,
+            		"deletePaths": [path],
+            		"failedPaths": [path],
+            		"fixPaths":[],
+            		"packagename": "policy",
+            		"alertObject": {
+            			"k8sApiObjects": [wl]
+            		}
+            	}
+            }
+
+            is_host_network(podspec) {
+                podspec.hostNetwork == true
+            }
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+        resources: []
+        defaults: false

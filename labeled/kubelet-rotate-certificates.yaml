@@ -1,0 +1,128 @@
+- ruleID: kubelet_rotate_certificates
+  effort: 1
+  category: optional
+  message: Ensure that the --rotate-certificates argument is not set to false.
+  labels:
+    - eks
+    - kubernetes
+    - kubescape
+    - konveyor.io/target=openshift
+    - konveyor.io/target=kubernetes
+    - konveyor.io/target=eks
+  description: Kubelet Rotate Certificates
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            import future.keywords.in
+
+            # CIS 4.2.11 https://workbench.cisecurity.org/sections/1126668/recommendations/1838658
+
+            deny[msga] {
+            	obj := input[_]
+            	is_kubelet_info(obj)
+
+            	command := obj.data.cmdLine
+
+            	contains(command, "--rotate-certificates")
+            	not contains(command, "--rotate-certificates=true")
+
+            	external_obj := json.filter(obj, ["apiVersion", "data/cmdLine", "kind", "metadata"])
+
+            	msga := {
+            		"alertMessage": "Kubelet client certificates rotation is disabled",
+            		"alertScore": 6,
+            		"reviewPaths": [],
+            		"failedPaths": [],
+            		"fixPaths": [],
+            		"packagename": "policy",
+            		"alertObject": {"externalObjects": external_obj},
+            	}
+            }
+
+            deny[msga] {
+            	obj := input[_]
+            	is_kubelet_info(obj)
+
+            	command := obj.data.cmdLine
+
+            	not contains(command, "--rotate-certificates")
+            	contains(command, "--config")
+
+            	decodedConfigContent := base64.decode(obj.data.configFile.content)
+            	yamlConfig := yaml.unmarshal(decodedConfigContent)
+            	yamlConfig.rotateCertificates == false
+
+            	msga := {
+            		"alertMessage": "Kubelet client certificates rotation is disabled",
+            		"alertScore": 6,
+            		"reviewPaths": ["rotateCertificates"],
+            		"failedPaths": ["rotateCertificates"],
+            		"fixPaths": [],
+            		"packagename": "policy",
+            		"alertObject": {"externalObjects": {
+            			"apiVersion": obj.apiVersion,
+            			"kind": obj.kind,
+            			"metadata": obj.metadata,
+            			"data": {"configFile": {"content": decodedConfigContent}},
+            		}},
+            	}
+            }
+
+            ## Host sensor failed to get config file content
+            deny[msga] {
+            	obj := input[_]
+            	is_kubelet_info(obj)
+
+            	command := obj.data.cmdLine
+
+            	not contains(command, "--rotate-certificates")
+            	contains(command, "--config")
+
+            	not obj.data.configFile.content
+
+            	msga := {
+            		"alertMessage": "Failed to analyze config file",
+            		"alertScore": 6,
+            		"reviewPaths": [],
+            		"failedPaths": [],
+            		"fixPaths": [],
+            		"packagename": "policy",
+            		"alertObject": {"externalObjects": {
+            			"apiVersion": obj.apiVersion,
+            			"kind": obj.kind,
+            			"data": obj.data,
+            		}},
+            	}
+            }
+
+            is_kubelet_info(obj) {
+            	obj.kind == "KubeletInfo"
+            	obj.apiVersion == "hostdata.kubescape.cloud/v1beta0"
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+        resources: []
+        defaults: false

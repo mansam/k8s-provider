@@ -1,0 +1,97 @@
+- ruleID: resources_memory_limits
+  effort: 1
+  category: optional
+  message: memory limits are not set.
+  labels:
+    - eks
+    - kubernetes
+    - kubescape
+    - konveyor.io/target=openshift
+    - konveyor.io/target=kubernetes
+    - konveyor.io/target=eks
+  description: Resources Memory Limits
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            #  ================================== no memory limits ==================================
+            # Fails if pod does not have container with memory-limits
+            deny[msga] {
+            	pod := input[_]
+            	pod.kind == "Pod"
+            	container := pod.spec.containers[i]
+            	not container.resources.limits.memory
+            	fixPaths := [{"path": sprintf("spec.containers[%v].resources.limits.memory", [format_int(i, 10)]), "value": "YOUR_VALUE"}]
+
+            	msga := {
+            		"alertMessage": sprintf("Container: %v does not have memory-limit or request", [container.name]),
+            		"packagename": "policy",
+            		"alertScore": 7,
+            		"fixPaths": fixPaths,
+            		"failedPaths": [],
+            		"alertObject": {"k8sApiObjects": [pod]},
+            	}
+            }
+
+            # Fails if workload does not have container with memory-limits
+            deny[msga] {
+            	wl := input[_]
+            	spec_template_spec_patterns := {"Deployment", "ReplicaSet", "DaemonSet", "StatefulSet", "Job"}
+            	spec_template_spec_patterns[wl.kind]
+            	container := wl.spec.template.spec.containers[i]
+            	not container.resources.limits.memory
+            	fixPaths := [{"path": sprintf("spec.template.spec.containers[%v].resources.limits.memory", [format_int(i, 10)]), "value": "YOUR_VALUE"}]
+
+            	msga := {
+            		"alertMessage": sprintf("Container: %v in %v: %v   does not have memory-limit or request", [container.name, wl.kind, wl.metadata.name]),
+            		"packagename": "policy",
+            		"alertScore": 7,
+            		"fixPaths": fixPaths,
+            		"failedPaths": [],
+            		"alertObject": {"k8sApiObjects": [wl]},
+            	}
+            }
+
+            # Fails if cronjob does not have container with memory-limits
+            deny[msga] {
+            	wl := input[_]
+            	wl.kind == "CronJob"
+            	container = wl.spec.jobTemplate.spec.template.spec.containers[i]
+            	not container.resources.limits.memory
+            	fixPaths := [{"path": sprintf("spec.jobTemplate.spec.template.spec.containers[%v].resources.limits.memory", [format_int(i, 10)]), "value": "YOUR_VALUE"}]
+
+            	msga := {
+            		"alertMessage": sprintf("Container: %v in %v: %v   does not have memory-limit or request", [container.name, wl.kind, wl.metadata.name]),
+            		"packagename": "policy",
+            		"alertScore": 7,
+            		"fixPaths": fixPaths,
+            		"failedPaths": [],
+            		"alertObject": {"k8sApiObjects": [wl]},
+            	}
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+        resources: []
+        defaults: false

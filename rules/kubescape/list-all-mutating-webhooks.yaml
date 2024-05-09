@@ -1,0 +1,47 @@
+- ruleID: list_all_mutating_webhooks
+  effort: 1
+  category: optional
+  message: Returns mutating webhook configurations to be verified
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+
+            deny [msga] {
+                mutatingwebhooks := [mutatingwebhook | mutatingwebhook = input[_]; mutatingwebhook.kind == "MutatingWebhookConfiguration"]
+                mutatingwebhook := mutatingwebhooks[_]
+
+                	msga := {
+            		"alertMessage": sprintf("The following mutating webhook configuration should be checked %v.", [mutatingwebhook.metadata.name]),
+            		"alertScore": 6,
+            		"failedPaths": [],
+            		"fixPaths": [],
+            		"packagename": "policy",
+            		"alertObject": {
+            			"k8sApiObjects": [mutatingwebhook]
+            		}
+            	}
+            }
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }

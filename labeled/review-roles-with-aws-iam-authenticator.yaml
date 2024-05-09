@@ -1,0 +1,57 @@
+- ruleID: review_roles_with_aws_iam_authenticator
+  effort: 1
+  category: optional
+  message: ""
+  labels:
+    - eks
+    - kubernetes
+    - kubescape
+    - konveyor.io/target=openshift
+    - konveyor.io/target=kubernetes
+    - konveyor.io/target=eks
+  description: Review Roles With Aws Iam Authenticator
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            deny[msga] {
+                resource := input[_]
+            	resource.kind == "Role"
+
+            	msga := {
+            		"alertMessage": sprintf("For namespace '%v', make sure Kubernetes RBAC users are managed with AWS IAM Authenticator for Kubernetes or Upgrade to AWS CLI v1.16.156", [resource.metadata.namespace]),
+            		"packagename": "policy",
+            		"alertScore": 7,
+            		"failedPaths": [],
+            		"fixPaths": [],
+            		"alertObject": {
+            			"externalObjects": resource
+            		}
+            	}
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+        resources: []
+        defaults: false

@@ -1,0 +1,140 @@
+- ruleID: kubelet_protect_kernel_defaults
+  effort: 1
+  category: optional
+  message: Determines if the --protect-kernel-defaults argument is set to true.
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            import future.keywords.in
+
+            # CIS 4.2.6 https://workbench.cisecurity.org/sections/1126668/recommendations/1838648
+
+            deny[msga] {
+            	obj := input[_]
+            	is_kubelet_info(obj)
+
+            	command := obj.data.cmdLine
+
+            	contains(command, "--protect-kernel-defaults")
+            	not contains(command, "--protect-kernel-defaults=true")
+
+            	external_obj := json.filter(obj, ["apiVersion", "data/cmdLine", "kind", "metadata"])
+
+            	msga := {
+            		"alertMessage": "Argument --protect-kernel-defaults is not set to true.",
+            		"alertScore": 2,
+            		"reviewPaths": [],
+            		"failedPaths": [],
+            		"fixPaths": [],
+            		"packagename": "policy",
+            		"alertObject": {"externalObjects": external_obj},
+            	}
+            }
+
+            deny[msga] {
+            	obj := input[_]
+            	is_kubelet_info(obj)
+
+            	command := obj.data.cmdLine
+
+            	not contains(command, "--protect-kernel-defaults")
+            	contains(command, "--config")
+
+            	decodedConfigContent := base64.decode(obj.data.configFile.content)
+            	yamlConfig := yaml.unmarshal(decodedConfigContent)
+            	not yamlConfig.protectKernelDefaults == true
+
+            	msga := {
+            		"alertMessage": "Property protectKernelDefaults is not set to true",
+            		"alertScore": 2,
+            		"reviewPaths": ["protectKernelDefaults"],
+            		"failedPaths": ["protectKernelDefaults"],
+            		"fixPaths": [],
+            		"packagename": "policy",
+            		"alertObject": {"externalObjects": {
+            			"apiVersion": obj.apiVersion,
+            			"kind": obj.kind,
+            			"metadata": obj.metadata,
+            			"data": {"configFile": {"content": decodedConfigContent}},
+            		}},
+            	}
+            }
+
+            deny[msga] {
+            	obj := input[_]
+            	is_kubelet_info(obj)
+
+            	command := obj.data.cmdLine
+
+            	not contains(command, "--protect-kernel-defaults")
+            	not contains(command, "--config")
+
+            	external_obj := json.filter(obj, ["apiVersion", "data/cmdLine", "kind", "metadata"])
+
+            	msga := {
+            		"alertMessage": "Argument --protect-kernel-defaults is not set to true.",
+            		"alertScore": 2,
+            		"reviewPaths": [],
+            		"failedPaths": [],
+            		"fixPaths": [],
+            		"packagename": "policy",
+            		"alertObject": {"externalObjects": external_obj},
+            	}
+            }
+
+            ## Host sensor failed to get config file content
+            deny[msga] {
+            	obj := input[_]
+            	is_kubelet_info(obj)
+
+            	command := obj.data.cmdLine
+
+            	not contains(command, "--protect-kernel-defaults")
+            	contains(command, "--config")
+
+            	not obj.data.configFile.content
+
+            	msga := {
+            		"alertMessage": "Failed to analyze config file",
+            		"alertScore": 2,
+            		"reviewPaths": [],
+            		"failedPaths": [],
+            		"fixPaths": [],
+            		"packagename": "policy",
+            		"alertObject": {"externalObjects": {
+            			"apiVersion": obj.apiVersion,
+            			"kind": obj.kind,
+            			"data": obj.data,
+            		}},
+            	}
+            }
+
+            is_kubelet_info(obj) {
+            	obj.kind == "KubeletInfo"
+            	obj.apiVersion == "hostdata.kubescape.cloud/v1beta0"
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }

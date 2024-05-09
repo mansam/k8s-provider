@@ -1,0 +1,69 @@
+- ruleID: instance_metadata_api_access
+  effort: 1
+  category: optional
+  message: Checks if there is access from the nodes to cloud prividers instance metadata services
+  labels:
+    - eks
+    - kubernetes
+    - kubescape
+    - konveyor.io/target=openshift
+    - konveyor.io/target=kubernetes
+    - konveyor.io/target=eks
+  description: Instance Metadata Api Access
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+
+            deny[msg] {
+            	obj = input[_]
+            	is_cloud_provider_info(obj)
+
+            	obj.data.providerMetaDataAPIAccess == true
+
+
+            	msg := {
+            		"alertMessage": sprintf("Node '%s' has access to Instance Metadata Services of cloud provider.", [obj.metadata.name]),
+            		"alert": true,
+            		"alertScore": 1,
+            		"failedPaths": [],
+            		"fixPaths": [],
+            		"alertObject": {
+            			"externalObjects": obj
+            		},
+            		"packagename": "policy"
+            	}
+
+            }
+
+
+
+            is_cloud_provider_info(obj) {
+            	obj.apiVersion == "hostdata.kubescape.cloud/v1beta0"
+            	obj.kind == "cloudProviderInfo"
+            }
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+        resources: []
+        defaults: false

@@ -1,0 +1,55 @@
+- ruleID: k8s_audit_logs_enabled_native
+  effort: 1
+  category: optional
+  message: ""
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            
+
+            # Check if audit logs is  enabled for native k8s
+            deny[msga] {
+            	apiserverpod := input[_]
+                cmd := apiserverpod.spec.containers[0].command
+            	audit_policy :=  [ command |command := cmd[_] ; contains(command, "--audit-policy-file=")]
+                count(audit_policy) < 1
+            	path := "spec.containers[0].command"
+
+
+            	msga := {
+            		"alertMessage": "audit logs is not enabled",
+            		"alertScore": 9,
+            		"packagename": "policy",
+            		"reviewPaths": [path],
+            		"failedPaths": [path],
+            		"fixPaths": [],
+            		"alertObject": {
+            			"k8sApiObjects": [apiserverpod],
+
+            		}
+            	}
+            }
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }

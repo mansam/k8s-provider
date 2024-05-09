@@ -1,0 +1,89 @@
+- ruleID: etcd_tls_enabled
+  effort: 1
+  category: optional
+  message: Configure TLS encryption for the etcd service.
+  labels:
+    - eks
+    - kubernetes
+    - kubescape
+    - konveyor.io/target=openshift
+    - konveyor.io/target=kubernetes
+    - konveyor.io/target=eks
+  description: Etcd Tls Enabled
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            # Check if tls is configured in a etcd service
+            deny[msga] {
+            	obj = input[_]
+            	is_etcd_pod(obj)
+
+            	result = invalid_flag(obj.spec.containers[0].command)
+
+            	msga := {
+            		"alertMessage": "etcd encryption is not enabled",
+            		"alertScore": 8,
+            		"packagename": "policy",
+            		"reviewPaths": result.failed_paths,
+            		"failedPaths": result.failed_paths,
+            		"fixPaths": result.fix_paths,
+            		"alertObject": {"k8sApiObjects": [obj]},
+            	}
+            }
+
+            is_etcd_pod(obj) {
+            	obj.apiVersion == "v1"
+            	obj.kind == "Pod"
+            	count(obj.spec.containers) == 1
+            	endswith(split(obj.spec.containers[0].command[0], " ")[0], "etcd")
+            }
+
+            # Assume flag set only once
+            invalid_flag(cmd) = result {
+            	full_cmd = concat(" ", cmd)
+            	wanted = [
+            		["--cert-file", "<path/to/tls-certificate-file.crt>"],
+            		["--key-file", "<path/to/tls-key-file.key>"],
+            	]
+
+            	fix_paths = [{
+            		"path": sprintf("spec.containers[0].command[%d]", [count(cmd) + i]),
+            		"value": sprintf("%s=%s", wanted[i]),
+            	} |
+            		not contains(full_cmd, wanted[i][0])
+            	]
+
+            	count(fix_paths) > 0
+
+            	result = {
+            		"failed_paths": [],
+            		"fix_paths": fix_paths,
+            	}
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+        resources: []
+        defaults: false

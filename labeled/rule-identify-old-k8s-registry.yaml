@@ -1,0 +1,113 @@
+- ruleID: rule_identify_old_k8s_registry
+  effort: 1
+  category: optional
+  message: Identifying if pod container images are from deprecated K8s registry
+  labels:
+    - eks
+    - kubernetes
+    - kubescape
+    - konveyor.io/target=openshift
+    - konveyor.io/target=kubernetes
+    - konveyor.io/target=eks
+  description: Rule Identify Old K8s Registry
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            deprecatedK8sRepo[msga] {
+            	pod := input[_]
+            	pod.metadata.namespace == "kube-system"
+            	k := pod.kind
+            	k == "Pod"
+            	container := pod.spec.containers[i]
+            	path := sprintf("spec.containers[%v].image", [format_int(i, 10)])
+            	image := container.image
+                deprecated_registry(image)
+
+            	msga := {
+            		"alertMessage": sprintf("image '%v' in container '%s' comes from the deprecated k8s.gcr.io", [image, container.name]),
+            		"packagename": "policy",
+            		"alertScore": 2,
+            		"fixPaths": [],
+            		"reviewPaths": [path],
+            		"failedPaths": [path],
+                     "alertObject": {
+            			"k8sApiObjects": [pod]
+            		}
+                }
+            }
+
+            deprecatedK8sRepo[msga] {
+            	wl := input[_]
+            	wl.metadata.namespace == "kube-system"
+            	spec_template_spec_patterns := {"Deployment","ReplicaSet","DaemonSet","StatefulSet","Job"}
+            	spec_template_spec_patterns[wl.kind]
+            	container := wl.spec.template.spec.containers[i]
+            	path := sprintf("spec.template.spec.containers[%v].image", [format_int(i, 10)])
+            	image := container.image
+                deprecated_registry(image)
+
+            	msga := {
+            		"alertMessage": sprintf("image '%v' in container '%s' comes from the deprecated k8s.gcr.io", [image, container.name]),
+            		"packagename": "policy",
+            		"alertScore": 2,
+            		"fixPaths": [],
+            		"reviewPaths": [path],
+            		"failedPaths": [path],
+                     "alertObject": {
+            			"k8sApiObjects": [wl]
+            		}
+                }
+            }
+
+            deprecatedK8sRepo[msga] {
+            	wl := input[_]
+            	wl.metadata.namespace == "kube-system"
+            	wl.kind == "CronJob"
+            	container := wl.spec.jobTemplate.spec.template.spec.containers[i]
+            	path := sprintf("spec.jobTemplate.spec.template.spec.containers[%v].image", [format_int(i, 10)])
+            	image := container.image
+                deprecated_registry(image)
+
+            	msga := {
+            		"alertMessage": sprintf("image '%v' in container '%s' comes from the deprecated k8s.gcr.io", [image, container.name]),
+            		"packagename": "policy",
+            		"alertScore": 2,
+            		"fixPaths": [],
+            		"reviewPaths": [path],
+            		"failedPaths": [path],
+                    "alertObject": {
+            			"k8sApiObjects": [wl]
+            		}
+                }
+            }
+
+            deprecated_registry(image){
+            	startswith(image, "k8s.gcr.io/")
+            }
+
+            incidents[msg] {
+              violation := deprecatedK8sRepo[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deprecatedK8sRepo[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+        resources: []
+        defaults: false

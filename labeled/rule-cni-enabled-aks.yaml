@@ -1,0 +1,81 @@
+- ruleID: rule_cni_enabled_aks
+  effort: 1
+  category: optional
+  message: ""
+  labels:
+    - eks
+    - kubernetes
+    - kubescape
+    - konveyor.io/target=openshift
+    - konveyor.io/target=kubernetes
+    - konveyor.io/target=eks
+  description: Rule Cni Enabled Aks
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            # fails if cni is not enabled like defined in:
+            # https://learn.microsoft.com/en-us/azure/aks/use-network-policies#create-an-aks-cluster-and-enable-network-policy
+            deny[msga] {
+            	cluster_describe := input[_]
+            	cluster_describe.apiVersion == "management.azure.com/v1"
+            	cluster_describe.kind == "ClusterDescribe"
+            	cluster_describe.metadata.provider == "aks"
+            	properties := cluster_describe.data.properties
+
+            	not cni_enabled_aks(properties)
+
+            	msga := {
+            		"alertMessage": "cni is not enabled",
+            		"alertScore": 3,
+            		"packagename": "policy",
+            		"failedPaths": [],
+            		"fixCommand": "",
+            		"fixPaths": [],
+            		"alertObject": {
+            			"k8sApiObjects": [],
+            			"externalObjects": cluster_describe,
+            		},
+            	}
+            }
+
+            cni_enabled_aks(properties) {
+            	properties.networkProfile.networkPlugin == "azure"
+            	properties.networkProfile.networkPolicy == "azure"
+            }
+
+            cni_enabled_aks(properties) {
+            	properties.networkProfile.networkPlugin == "azure"
+            	properties.networkProfile.networkPolicy == "calico"
+            }
+
+            cni_enabled_aks(properties) {
+            	properties.networkProfile.networkPlugin == "kubenet"
+            	properties.networkProfile.networkPolicy == "calico"
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+        resources: []
+        defaults: false

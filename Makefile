@@ -6,7 +6,7 @@ SERVE = -o bin/serve github.com/konveyor-ecosystem/k8s-provider/cmd/server
 CLI = -o bin/cli github.com/konveyor-ecosystem/k8s-provider/cmd/cli
 
 PKG = ./cmd/... \
-      ./k8s/... \
+      ./resources/... \
       ./provider/...
 
 PKGDIR = $(subst /...,,$(PKG))

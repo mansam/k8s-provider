@@ -1,0 +1,45 @@
+- ruleID: rule_manual
+  effort: 1
+  category: optional
+  message: Due to the difficulty of performing a good check, the review is left manual to the user.
+  when:
+    k8s-resource.rego_module:
+        module: |4-
+            package policy
+
+            deny[msga] {
+
+            	msga := {
+                	"alertMessage": "Please check it manually.",
+                	"packagename": "policy",
+                	"alertScore": 2,
+                	"failedPaths": [],
+                	"fixPaths":[],
+                    "fixCommand": "",
+                	"alertObject": {
+            			"k8sObject": []
+                    }
+                }
+            }
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }

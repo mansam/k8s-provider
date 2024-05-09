@@ -1,0 +1,63 @@
+- ruleID: rbac_enabled_native
+  effort: 1
+  category: optional
+  message: ""
+  labels:
+    - eks
+    - kubernetes
+    - kubescape
+    - konveyor.io/target=openshift
+    - konveyor.io/target=kubernetes
+    - konveyor.io/target=eks
+  description: Rbac Enabled Native
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+
+            # Check if psp is enabled for native k8s
+            deny[msga] {
+            	apiserverpod := input[_]
+                cmd := apiserverpod.spec.containers[0].command[j]
+                contains(cmd, "--authorization-mode=")
+                output := split(cmd, "=")
+                not contains(output[1], "RBAC")
+            	path := sprintf("spec.containers[0].command[%v]", [format_int(j, 10)])	
+            	
+            	msga := {
+            		"alertMessage": "RBAC is not enabled",
+            		"alertScore": 9,
+            		"packagename": "policy",
+            		"reviewPaths": [path],
+            		"failedPaths": [path],
+            		"fixPaths": [],
+            		"alertObject": {
+            			"k8sApiObjects": [apiserverpod],
+            		}
+            	}
+            }
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+        resources: []
+        defaults: false

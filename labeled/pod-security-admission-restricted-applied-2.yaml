@@ -1,0 +1,96 @@
+- ruleID: pod_security_admission_restricted_applied_2
+  effort: 1
+  category: optional
+  message: Checks that every namespace enabled restricted pod security admission, or if there are external policies applied for namespaced resources (validating/mutating webhooks) - returns them to be reviewed
+  labels:
+    - eks
+    - kubernetes
+    - kubescape
+    - konveyor.io/target=openshift
+    - konveyor.io/target=kubernetes
+    - konveyor.io/target=eks
+  description: Pod Security Admission Restricted Applied 2
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+            import future.keywords.every
+
+            # Fails if namespace does not have relevant labels and no 3rd party security admission exists
+            deny[msga] {
+            	namespace := input[_]
+            	namespace.kind == "Namespace"
+            	not restricted_admission_policy_enabled(namespace)
+                not has_external_policy_control(input)
+            	fix_path = {"path": "metadata.labels[pod-security.kubernetes.io/enforce]", "value": "restricted"}
+
+            	msga := {
+            		"alertMessage": sprintf("Namespace: %v does not enable restricted pod security admission", [namespace.metadata.name]),
+            		"packagename": "policy",
+            		"alertScore": 7,
+            		"failedPaths": [],
+            		"fixPaths": [fix_path],
+            		"alertObject": {
+            			"k8sApiObjects": [namespace]
+            		}
+            	}
+            }
+
+            # Fails if at least 1 namespace does not have relevant labels and 3rd party security admission EXISTS
+            # returns webhook configuration for user to review
+            deny[msga] {
+            	some namespace in input
+            	namespace.kind == "Namespace"
+            	not restricted_admission_policy_enabled(namespace)
+
+                admissionwebhook := input[_]
+                admissionwebhook.kind in ["ValidatingWebhookConfiguration", "MutatingWebhookConfiguration"]
+                admissionwebhook.webhooks[i].rules[j].scope != "Cluster"
+
+            	msga := {
+            		"alertMessage": sprintf("Review webhook: %v ensure that it defines the required policy", [admissionwebhook.metadata.name]),
+            		"packagename": "policy",
+            		"alertScore": 7,
+            		"failedPaths": [],
+            		"fixPaths": [],
+            		"alertObject": {
+            			"k8sApiObjects": [admissionwebhook]
+            		}
+            	}
+            }
+
+            restricted_admission_policy_enabled(namespace){
+            	some key, value in namespace.metadata.labels
+                key == "pod-security.kubernetes.io/enforce"
+            	value ==  "restricted"
+            }
+
+            has_external_policy_control(inp){
+                some admissionwebhook in inp
+                admissionwebhook.kind in ["ValidatingWebhookConfiguration", "MutatingWebhookConfiguration"]
+                admissionwebhook.webhooks[i].rules[j].scope != "Cluster"
+            }
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+        resources: []
+        defaults: false

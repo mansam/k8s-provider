@@ -1,0 +1,86 @@
+- ruleID: pv_without_encryption
+  effort: 1
+  category: optional
+  message: PersistentVolume without encryption
+  labels:
+    - eks
+    - kubernetes
+    - kubescape
+    - konveyor.io/target=openshift
+    - konveyor.io/target=kubernetes
+    - konveyor.io/target=eks
+  description: Pv Without Encryption
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            # Checks if Ingress is connected to a service and a workload to expose something
+            deny[msga] {
+            	pv := input[_]
+            	pv.kind == "PersistentVolume"
+
+            	# Find the related storage class
+            	storageclass := input[_]
+            	storageclass.kind == "StorageClass"
+            	pv.spec.storageClassName == storageclass.metadata.name
+
+            	# Check if storage class is encrypted
+            	not is_storage_class_encrypted(storageclass)
+
+            	msga := {
+            		"alertMessage": sprintf("Volume '%v' has is using a storage class that does not use encryption", [pv.metadata.name]),
+            		"packagename": "policy",
+            		"failedPaths": [],
+            		"fixPaths": [{
+            			"path": "pv.spec.storageClassName",
+            			"value": "<your encrypted storage class>"
+                    }],
+            		"alertScore": 7,
+            		"alertObject": {"k8sApiObjects": [pv]}
+            	}
+            }
+
+            # Storage class is encrypted - AWS
+            is_storage_class_encrypted(storageclass) {
+            	storageclass.parameters.encrypted == "true"
+            }
+
+            # Storage class is encrypted - Azure
+            is_storage_class_encrypted(storageclass) {
+            	storageclass.provisioner
+            	contains(storageclass.provisioner,"azure")
+            }
+
+            # Storage class is encrypted - GCP
+            is_storage_class_encrypted(storageclass) {
+            	# GKE encryption is enabled by default https://cloud.google.com/blog/products/containers-kubernetes/exploring-container-security-use-your-own-keys-to-protect-your-data-on-gke
+            	storageclass.provisioner
+            	contains(storageclass.provisioner,"csi.storage.gke.io")
+            }
+
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+        resources: []
+        defaults: false

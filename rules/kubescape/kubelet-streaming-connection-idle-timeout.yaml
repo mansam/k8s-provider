@@ -1,0 +1,118 @@
+- ruleID: kubelet_streaming_connection_idle_timeout
+  effort: 1
+  category: optional
+  message: Determines if a kubelet has not disabled timeouts on streaming connections
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            import future.keywords.in
+
+            # CIS 4.2.5 https://workbench.cisecurity.org/sections/1126668/recommendations/1838646
+
+            deny[msga] {
+            	obj := input[_]
+            	is_kubelet_info(obj)
+
+            	command := obj.data.cmdLine
+
+            	contains(command, "--streaming-connection-idle-timeout")
+            	contains(command, "--streaming-connection-idle-timeout=0")
+
+            	external_obj := json.filter(obj, ["apiVersion", "data/cmdLine", "kind", "metadata"])
+
+            	msga := {
+            		"alertMessage": "Timeouts on streaming connections are enabled",
+            		"alertScore": 3,
+            		"reviewPaths": [],
+            		"failedPaths": [],
+            		"fixPaths": [],
+            		"packagename": "policy",
+            		"alertObject": external_obj
+            	}
+            }
+
+            deny[msga] {
+            	obj := input[_]
+            	is_kubelet_info(obj)
+
+            	command := obj.data.cmdLine
+
+            	not contains(command, "--streaming-connection-idle-timeout")
+            	contains(command, "--config")
+
+            	decodedConfigContent := base64.decode(obj.data.configFile.content)
+            	yamlConfig := yaml.unmarshal(decodedConfigContent)
+            	yamlConfig.streamingConnectionIdleTimeout == 0
+
+            	msga := {
+            		"alertMessage": "Timeouts on streaming connections are enabled",
+            		"alertScore": 3,
+            		"reviewPaths": ["streamingConnectionIdleTimeout"],
+            		"failedPaths": ["streamingConnectionIdleTimeout"],
+            		"fixPaths": [],
+            		"packagename": "policy",
+            		"alertObject": {"externalObjects": {
+            			"apiVersion": obj.apiVersion,
+            			"kind": obj.kind,
+            			"metadata": obj.metadata,
+            			"data": {"configFile": {"content": decodedConfigContent}},
+            		}}
+            	}
+            }
+
+            ## Host sensor failed to get config file content
+            deny[msga] {
+            	obj := input[_]
+            	is_kubelet_info(obj)
+
+            	command := obj.data.cmdLine
+
+            	not contains(command, "--streaming-connection-idle-timeout")
+            	contains(command, "--config")
+
+            	not obj.data.configFile.content
+
+            	msga := {
+            		"alertMessage": "Failed to analyze config file",
+            		"alertScore": 3,
+            		"reviewPaths": [],
+            		"failedPaths": [],
+            		"fixPaths": [],
+            		"packagename": "policy",
+            		"alertObject": {"externalObjects": {
+            			"apiVersion": obj.apiVersion,
+            			"kind": obj.kind,
+            			"data": obj.data
+            		}}
+            	}
+            }
+
+            is_kubelet_info(obj) {
+            	obj.kind == "KubeletInfo"
+            	obj.apiVersion == "hostdata.kubescape.cloud/v1beta0"
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }

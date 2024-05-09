@@ -3,15 +3,16 @@ package provider
 import (
 	_ "embed"
 	"strings"
-)
 
-//go:embed inventory.rego
-var InventoryModule string
+	"k8s.io/apimachinery/pkg/runtime/schema"
+)
 
 // ModuleCondition is the input for the rego_module
 // capability, which takes an entire rego module and evaluates it.
 type ModuleCondition struct {
-	Module string `json:"module"`
+	Module    string                    `json:"module"`
+	Resources []schema.GroupVersionKind `json:"resources"`
+	Defaults  bool                      `json:"defaults"`
 }
 
 // ExpressionCondition is the input for the rego_expr

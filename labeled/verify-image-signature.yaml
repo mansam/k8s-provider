@@ -1,0 +1,113 @@
+- ruleID: verify_image_signature
+  effort: 1
+  category: optional
+  message: Verifies the signature of each image with given public keys
+  labels:
+    - eks
+    - kubernetes
+    - kubescape
+    - konveyor.io/target=openshift
+    - konveyor.io/target=kubernetes
+    - konveyor.io/target=eks
+  description: Verify Image Signature
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            deny[msga] {
+
+                pod := input[_]
+                pod.kind == "Pod"
+            	container := pod.spec.containers[i]
+
+                verified_keys := [trusted_key | trusted_key = data.postureControlInputs.trustedCosignPublicKeys[_]; cosign.verify(container.image, trusted_key)]
+                count(verified_keys) == 0
+
+            	path := sprintf("spec.containers[%v].image", [i])
+
+            	msga := {
+            		"alertMessage": sprintf("signature not verified for image: %v", [container.image]),
+            		"alertScore": 7,
+            		"fixPaths": [],
+            		"reviewPaths": [path],
+            		"failedPaths": [path],
+            		"packagename": "policy",
+            		"alertObject": {
+            			"k8sApiObjects": [pod]
+            		},
+            	}
+            }
+
+            deny[msga] {
+                wl := input[_]
+            	spec_template_spec_patterns := {"Deployment","ReplicaSet","DaemonSet","StatefulSet","Job"}
+            	spec_template_spec_patterns[wl.kind]
+                container := wl.spec.template.spec.containers[i]
+
+            	verified_keys := [trusted_key | trusted_key = data.postureControlInputs.trustedCosignPublicKeys[_]; cosign.verify(container.image, trusted_key)]
+                count(verified_keys) == 0
+
+            	path := sprintf("spec.template.spec.containers[%v].image", [i])
+
+                msga := {
+            		"alertMessage": sprintf("signature not verified for image: %v", [container.image]),
+            		"alertScore": 7,
+            		"fixPaths": [],
+            		"reviewPaths": [path],
+            		"failedPaths": [path],
+            		"packagename": "policy",
+            		"alertObject": {
+            			"k8sApiObjects": [wl]
+            		},
+            	}
+            }
+
+
+            deny[msga] {
+            	wl := input[_]
+            	wl.kind == "CronJob"
+            	container = wl.spec.jobTemplate.spec.template.spec.containers[i]
+
+                verified_keys := [trusted_key | trusted_key = data.postureControlInputs.trustedCosignPublicKeys[_]; cosign.verify(container.image, trusted_key)]
+                count(verified_keys) == 0
+
+            	path := sprintf("spec.jobTemplate.spec.template.spec.containers[%v].image", [i])
+
+                msga := {
+            		"alertMessage": sprintf("signature not verified for image: %v", [container.image]),
+            		"alertScore": 7,
+            		"fixPaths": [],
+            		"reviewPaths": [path],
+            		"failedPaths": [path],
+            		"packagename": "policy",
+            		"alertObject": {
+            			"k8sApiObjects": [wl]
+            		},
+            	}
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+        resources: []
+        defaults: false

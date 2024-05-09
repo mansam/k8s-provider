@@ -1,0 +1,70 @@
+- ruleID: k8s_audit_logs_enabled_native_cis
+  effort: 1
+  category: optional
+  message: Kubernetes can audit the details of requests made to the API server. The `--audit-policy-file` flag must be set for this logging to be enabled.
+  labels:
+    - eks
+    - kubernetes
+    - kubescape
+    - konveyor.io/target=openshift
+    - konveyor.io/target=kubernetes
+    - konveyor.io/target=eks
+  description: K8s Audit Logs Enabled Native Cis
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            # CIS 3.2.1 https://workbench.cisecurity.org/sections/1126657/recommendations/1838582
+            deny[msga] {
+            	obj := input[_]
+            	is_api_server(obj)
+            	cmd := obj.spec.containers[0].command
+            	audit_policy := [command | command := cmd[_]; contains(command, "--audit-policy-file=")]
+            	count(audit_policy) < 1
+            	path := sprintf("spec.containers[0].command[%v]", [count(cmd)])
+
+            	msga := {
+            		"alertMessage": "audit logs are not enabled",
+            		"alertScore": 5,
+            		"packagename": "policy",
+            		"reviewPaths": [path],
+            		"failedPaths": [path],
+            		"fixPaths": [],
+            		"alertObject": {"k8sApiObjects": [obj]},
+            	}
+            }
+
+            is_api_server(obj) {
+            	obj.apiVersion == "v1"
+            	obj.kind == "Pod"
+            	obj.metadata.namespace == "kube-system"
+            	count(obj.spec.containers) == 1
+            	count(obj.spec.containers[0].command) > 0
+            	endswith(obj.spec.containers[0].command[0], "kube-apiserver")
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+        resources: []
+        defaults: false

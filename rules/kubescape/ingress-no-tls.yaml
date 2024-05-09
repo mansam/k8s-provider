@@ -1,0 +1,52 @@
+- ruleID: ingress_no_tls
+  effort: 1
+  category: optional
+  message: Ingress should not be configured without TLS
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            # Checks if Ingress is connected to a service and a workload to expose something
+            deny[msga] {
+            	ingress := input[_]
+            	ingress.kind == "Ingress"
+
+            	# Check if ingress has TLS enabled
+            	not ingress.spec.tls
+
+            	msga := {
+            		"alertMessage": sprintf("Ingress '%v' has not TLS definition", [ingress.metadata.name]),
+            		"packagename": "policy",
+            		"failedPaths": [],
+            		"fixPaths": [{
+                    "path": "spec.tls",
+                    "value": "<your-tls-definition>"
+                    }],
+            		"alertScore": 7,
+            		"alertObject": {"k8sApiObjects": [ingress]}
+            	}
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }

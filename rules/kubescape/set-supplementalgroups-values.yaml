@@ -1,0 +1,95 @@
+- ruleID: set_supplementalgroups_values
+  effort: 1
+  category: optional
+  message: Fails if securityContext.supplementalgroups is not set.
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            ### POD ###
+
+            # Fails if securityContext.supplementalGroups is not set
+            deny[msga] {
+            	# verify the object kind
+            	pod := input[_]
+            	pod.kind = "Pod"
+
+            	# check securityContext has supplementalGroups set
+            	not pod.spec.securityContext.supplementalGroups
+            	fixPaths = [{"path": "spec.securityContext.supplementalGroups", "value": "YOUR_VALUE"}]
+
+            	msga := {
+            		"alertMessage": sprintf("Pod: %v does not set 'securityContext.supplementalGroups'", [pod.metadata.name]),
+            		"packagename": "policy",
+            		"alertScore": 7,
+            		"fixPaths": fixPaths,
+            		"alertObject": {"k8sApiObjects": [pod]},
+            	}
+            }
+
+            ### WORKLOAD ###
+
+            # Fails if securityContext.supplementalGroups is not set
+            deny[msga] {
+            	# verify the object kind
+            	wl := input[_]
+            	manifest_kind := {"Deployment", "ReplicaSet", "DaemonSet", "StatefulSet", "Job"}
+            	manifest_kind[wl.kind]
+
+            	# check securityContext has supplementalGroups set
+            	not wl.spec.template.spec.securityContext.supplementalGroups
+            	fixPaths = [{"path": "spec.template.spec.securityContext.supplementalGroups", "value": "YOUR_VALUE"}]
+
+            	msga := {
+            		"alertMessage": sprintf("Workload: %v does not set 'securityContext.supplementalGroups'", [wl.metadata.name]),
+            		"packagename": "policy",
+            		"alertScore": 7,
+            		"fixPaths": fixPaths,
+            		"alertObject": {"k8sApiObjects": [wl]},
+            	}
+            }
+
+            ### CRONJOB ###
+
+            # Fails if securityContext.supplementalGroups is not set
+            deny[msga] {
+            	# verify the object kind
+            	cj := input[_]
+            	cj.kind == "CronJob"
+
+            	# check securityContext has supplementalGroups set
+            	not cj.spec.jobTemplate.spec.template.spec.securityContext.supplementalGroups
+            	fixPaths = [{"path": "spec.jobTemplate.spec.template.spec.securityContext.supplementalGroups", "value": "YOUR_VALUE"}]
+
+            	msga := {
+            		"alertMessage": sprintf("CronJob: %v does not set 'securityContext.supplementalGroups'", [cj.metadata.name]),
+            		"packagename": "policy",
+            		"alertScore": 7,
+            		"fixPaths": fixPaths,
+            		"alertObject": {"k8sApiObjects": [cj]},
+            	}
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }

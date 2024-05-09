@@ -1,0 +1,71 @@
+- ruleID: ingress_in_default_namespace
+  effort: 1
+  category: optional
+  message: ""
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            deny[msga] {
+                resource := input[_]
+            	result := is_default_namespace(resource.metadata)
+            	failed_path := get_failed_path(result)
+                fixed_path := get_fixed_path(result)
+            	msga := {
+            		"alertMessage": sprintf("%v: %v is in the 'default' namespace", [resource.kind, resource.metadata.name]),
+            		"packagename": "policy",
+            		"alertScore": 3,
+            		"reviewPaths": failed_path,
+            		"failedPaths": failed_path,
+            		"fixPaths": fixed_path,
+            		"alertObject": {
+            			"k8sApiObjects": [resource]
+            		}
+            	}
+            }
+
+            is_default_namespace(metadata) = [failed_path, fixPath] {
+            	metadata.namespace == "default"
+            	failed_path = "metadata.namespace"
+            	fixPath = ""
+            }
+
+            is_default_namespace(metadata) = [failed_path, fixPath] {
+            	not metadata.namespace
+            	failed_path = ""
+            	fixPath = {"path": "metadata.namespace", "value": "YOUR_NAMESPACE"}
+            }
+
+            get_failed_path(paths) = [paths[0]] {
+            	paths[0] != ""
+            } else = []
+
+            get_fixed_path(paths) = [paths[1]] {
+            	paths[1] != ""
+            } else = []
+
+
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }

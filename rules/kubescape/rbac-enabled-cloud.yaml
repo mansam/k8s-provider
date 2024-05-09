@@ -1,0 +1,56 @@
+- ruleID: rbac_enabled_cloud
+  effort: 1
+  category: optional
+  message: ""
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            deny[msga] {
+            	cluster_config := input[_]
+            	cluster_config.apiVersion == "management.azure.com/v1"
+            	cluster_config.kind == "ClusterDescribe"
+            	cluster_config.metadata.provider == "aks"
+            	config := cluster_config.data
+            	not config.properties.enableRBAC == true
+
+            	msga := {
+            		"alertMessage": "rbac is not enabled",
+            		"alertScore": 3,
+            		"packagename": "policy",
+            		"reviewPaths": ["data.properties.enableRBAC"],
+            		"failedPaths": ["data.properties.enableRBAC"],
+            		"fixCommand": "",
+            		"fixPaths": [],
+            		"alertObject": {
+                        		"externalObjects": cluster_config
+            		}
+            	}
+            }
+
+
+
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }

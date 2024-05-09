@@ -1,0 +1,50 @@
+- ruleID: rule_deny_cronjobs
+  effort: 1
+  category: optional
+  message: determines if it's cronjob
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            # alert cronjobs
+
+            # handles cronjob
+            deny[msga] {
+
+            	wl := input[_]
+            	wl.kind == "CronJob"
+                msga := {
+            		"alertMessage": sprintf("the following cronjobs are defined: %v", [wl.metadata.name]),
+            		"alertScore": 2,
+            		"failedPaths": [],
+            		"fixPaths": [],
+            		"packagename": "policy",
+                     "alertObject": {
+            			"k8sApiObjects": [wl]
+            		}
+                 }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }

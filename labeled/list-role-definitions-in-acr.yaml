@@ -1,0 +1,60 @@
+- ruleID: list_role_definitions_in_acr
+  effort: 1
+  category: optional
+  message: ""
+  labels:
+    - eks
+    - kubernetes
+    - kubescape
+    - konveyor.io/target=openshift
+    - konveyor.io/target=kubernetes
+    - konveyor.io/target=eks
+  description: List Role Definitions In Acr
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            # return ListEntitiesForPolicies resource in azure
+            deny[msg] {
+            	resources := input[_]
+            	resources.kind == "ListEntitiesForPolicies"
+            	resources.apiVersion == "management.azure.com/v1"
+            	resources.metadata.provider == "aks"
+
+            	msg := {
+            		"alertMessage": "",
+            		"packagename": "policy",
+            		"alertScore": 7,
+            		"failedPaths": [],
+            		"fixPaths": [],
+            		"alertObject": {
+            			"externalObjects": resources
+            		}
+            	}
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+        resources: []
+        defaults: false

@@ -1,0 +1,75 @@
+- ruleID: anonymous_access_enabled
+  effort: 1
+  category: optional
+  message: Fails in case anonymous or unauthenticated user has any rbac permissions (is bound by a RoleBinding/ClusterRoleBinding)
+  labels:
+    - eks
+    - kubernetes
+    - kubescape
+    - konveyor.io/target=openshift
+    - konveyor.io/target=kubernetes
+    - konveyor.io/target=eks
+  description: Anonymous Access Enabled
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            # Fails is rolebinding/clusterrolebinding gives permissions to anonymous user
+            deny[msga] {
+                rolebindings := [rolebinding | rolebinding = input[_]; endswith(rolebinding.kind, "Binding")]
+                rolebinding := rolebindings[_]
+                subject := rolebinding.subjects[i]
+                isAnonymous(subject)
+                delete_path := sprintf("subjects[%d]", [i])
+                msga := {
+                    "alertMessage": sprintf("the following RoleBinding: %v gives permissions to anonymous users", [rolebinding.metadata.name]),
+                    "alertScore": 9,
+                    "deletePaths": [delete_path],
+                    "failedPaths": [delete_path],
+                    "packagename": "policy",
+                    "alertObject": {
+                        "k8sApiObjects": [rolebinding]
+                    }
+                }
+            }
+
+
+            isAnonymous(subject) {
+                subject.name == "system:anonymous"
+            }
+
+            isAnonymous(subject) {
+                subject.name == "system:unauthenticated"
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+        resources:
+            - group: rbac.authorization.k8s.io
+              version: v1
+              kind: RoleBinding
+            - group: rbac.authorization.k8s.io
+              version: v1
+              kind: ClusterRoleBinding
+        defaults: false

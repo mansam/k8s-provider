@@ -1,0 +1,159 @@
+- ruleID: host_pid_ipc_privileges
+  effort: 1
+  category: optional
+  message: Containers should be as isolated as possible from the host machine. The hostPID and hostIPC fields in Kubernetes may excessively expose the host to potentially malicious actions.
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+
+            # Fails if pod has hostPID enabled
+            deny[msga] {
+                pod := input[_]
+                pod.kind == "Pod"
+            	is_host_pid(pod.spec)
+            	path := "spec.hostPID"
+            	msga := {
+            		"alertMessage": sprintf("Pod: %v has hostPID enabled", [pod.metadata.name]),
+            		"packagename": "policy",
+            		"alertScore": 7,
+            		"deletePaths": [path],
+            		"failedPaths": [path],
+            		"fixPaths": [],
+            		"alertObject": {
+            			"k8sApiObjects": [pod]
+            		}
+            	}
+            }
+
+            # Fails if pod has hostIPC enabled
+            deny[msga] {
+                pod := input[_]
+                pod.kind == "Pod"
+            	is_host_ipc(pod.spec)
+            	path := "spec.hostIPC"
+            	msga := {
+            		"alertMessage": sprintf("Pod: %v has hostIPC enabled", [pod.metadata.name]),
+            		"packagename": "policy",
+            		"alertScore": 7,
+            		"deletePaths": [path],
+            		"failedPaths": [path],
+            		"fixPaths": [],
+            		"alertObject": {
+            			"k8sApiObjects": [pod]
+            		}
+            	}
+            }
+
+
+            # Fails if workload has hostPID enabled
+            deny[msga] {
+                wl := input[_]
+            	spec_template_spec_patterns := {"Deployment","ReplicaSet","DaemonSet","StatefulSet","Job"}
+            	is_host_pid(wl.spec.template.spec)
+            	path := "spec.template.spec.hostPID"
+                msga := {
+            	"alertMessage": sprintf("%v: %v has a pod with hostPID enabled", [wl.kind, wl.metadata.name]),
+            		"alertScore": 9,
+            		"deletePaths": [path],
+            		"failedPaths": [path],
+            		"fixPaths": [],
+            		"packagename": "policy",
+            		"alertObject": {
+            			"k8sApiObjects": [wl]
+            		}
+            	}
+            }
+
+
+            # Fails if workload has hostIPC enabled
+            deny[msga] {
+                wl := input[_]
+            	spec_template_spec_patterns := {"Deployment","ReplicaSet","DaemonSet","StatefulSet","Job"}
+            	is_host_ipc(wl.spec.template.spec)
+            	path := "spec.template.spec.hostIPC"
+                msga := {
+            	"alertMessage": sprintf("%v: %v has a pod with hostIPC enabled", [wl.kind, wl.metadata.name]),
+            		"alertScore": 9,
+            		"deletePaths": [path],
+            		"failedPaths": [path],
+            		"fixPaths": [],
+            		"packagename": "policy",
+            		"alertObject": {
+            			"k8sApiObjects": [wl]
+            		}
+            	}
+            }
+
+            # Fails if cronjob has hostPID enabled
+            deny[msga] {
+            	wl := input[_]
+            	wl.kind == "CronJob"
+            	is_host_pid(wl.spec.jobTemplate.spec.template.spec)
+            	path := "spec.jobTemplate.spec.template.spec.hostPID"
+                msga := {
+            	"alertMessage": sprintf("CronJob: %v has a pod with hostPID enabled", [wl.metadata.name]),
+            		"alertScore": 9,
+            		"deletePaths": [path],
+            		"failedPaths": [path],
+            		"fixPaths": [],
+            		"packagename": "policy",
+            		"alertObject": {
+            			"k8sApiObjects": [wl]
+            		}
+            	}
+            }
+
+
+            # Fails if cronjob has hostIPC enabled
+            deny[msga] {
+            	wl := input[_]
+            	wl.kind == "CronJob"
+            	is_host_ipc(wl.spec.jobTemplate.spec.template.spec)
+            	path := "spec.jobTemplate.spec.template.spec.hostIPC"
+                msga := {
+            	"alertMessage": sprintf("CronJob: %v has a pod with hostIPC enabled", [wl.metadata.name]),
+            		"alertScore": 9,
+            		"deletePaths": [path],
+            		"failedPaths": [path],
+            		"fixPaths": [],
+            		"packagename": "policy",
+            		"alertObject": {
+            			"k8sApiObjects": [wl]
+            		}
+            	}
+            }
+
+            # Check that hostPID and hostIPC are set to false. Default is false. Only in pod spec
+
+
+            is_host_pid(podspec){
+                podspec.hostPID == true
+            }
+
+            is_host_ipc(podspec){
+                 podspec.hostIPC == true
+            }
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }

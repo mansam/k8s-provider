@@ -1,0 +1,59 @@
+- ruleID: ensure_aws_policies_are_present
+  effort: 1
+  category: optional
+  message: fails if aws policies are not found
+  labels:
+    - eks
+    - kubernetes
+    - kubescape
+    - konveyor.io/target=openshift
+    - konveyor.io/target=kubernetes
+    - konveyor.io/target=eks
+  description: Ensure Aws Policies Are Present
+  when:
+    k8s-resource.rego_module:
+        module: |-
+            package policy
+
+            # deny if policies are not present on AWS
+            deny[msg] {
+            	policies := input[_]
+            	policies.kind == "PolicyVersion"
+            	policies.metadata.provider == "eks"
+
+            	msg := {
+            		"alertMessage": "Cluster has not policies to minimize access to Amazon ECR; Add some policy in order to minimize access on it.",
+            		"packagename": "policy",
+            		"alertScore": 7,
+            		"failedPaths": [],
+            		"fixPaths": [],
+            		"alertObject": {
+            			"externalObjects": policies
+            		}
+            	}
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              apiObjects := object.get(violation.alertObject, "k8sApiObjects", false)
+              item := apiObjects[_]
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+
+            incidents[msg] {
+              violation := deny[_]
+              item := object.get(violation.alertObject, "externalObjects", false)
+              msg := {
+            	  "apiVersion": item.apiVersion,
+            		"namespace": item.metadata.namespace,
+            		"kind": item.kind,
+            		"name": item.metadata.name,
+              }
+            }
+        resources: []
+        defaults: false

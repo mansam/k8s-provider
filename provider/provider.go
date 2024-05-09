@@ -5,19 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/go-logr/logr"
-	"github.com/konveyor-ecosystem/k8s-provider/k8s"
+	"github.com/konveyor-ecosystem/k8s-provider/config"
+	"github.com/konveyor-ecosystem/k8s-provider/resources"
 	libprovider "github.com/konveyor/analyzer-lsp/provider"
 	"github.com/open-policy-agent/opa/rego"
 	"go.lsp.dev/uri"
 	"gopkg.in/yaml.v3"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 const (
-	ProviderName = "k8s"
+	ProviderName = "k8s-resource"
 )
 
 // Capabilities
@@ -30,12 +29,8 @@ const (
 type K8sInitConfig struct {
 	libprovider.InitConfig
 	ProviderSpecificConfig struct {
-		// path to the cluster's kube config
-		KubeConfig []byte `json:"kubeConfig"`
-		// list of GVKs to evaluate rules against
-		GroupVersionKinds []schema.GroupVersionKind `json:"groupVersionKinds"`
-		// list of namespaces to collect resources from
-		Namespaces []string `json:"namespaces"`
+		Source config.Cluster `json:"source"`
+		//Destination Cluster `json:"destination"`
 	}
 }
 
@@ -46,6 +41,7 @@ func NewK8sInitConfig(initCfg libprovider.InitConfig) (k *K8sInitConfig, err err
 	if err != nil {
 		return
 	}
+	fmt.Println(k)
 	err = json.Unmarshal(psc, &k.ProviderSpecificConfig)
 	if err != nil {
 		return
@@ -63,34 +59,30 @@ func New() (k *K8s) {
 // K8s provider
 type K8s struct {
 	ctx         context.Context
-	k8sClient   *k8s.Client
+	cfg         *K8sInitConfig
+	k8sClient   *resources.Client
 	baseModules func(r *rego.Rego)
-	resources   *k8s.UnstructuredResources
+	resources   resources.Resources
 	log         logr.Logger
 }
 
 // Init the provider. Reads in base Rego modules, kubeconfig, and pulls resources from the cluster.
 func (r *K8s) Init(ctx context.Context, log logr.Logger, initCfg libprovider.InitConfig) (svc libprovider.ServiceClient, err error) {
-	cfg, err := NewK8sInitConfig(initCfg)
+	r.cfg, err = NewK8sInitConfig(initCfg)
 	if err != nil {
 		return
 	}
 	r.ctx = ctx
 	r.log = log
-	r.baseModules = rego.Module("inventory.rego", InventoryModule)
+	r.baseModules = rego.Module("inventory.rego", resources.InventoryModule)
 
-	r.k8sClient, err = k8s.NewClient(cfg.ProviderSpecificConfig.KubeConfig)
+	r.k8sClient, err = resources.NewClient(r.cfg.ProviderSpecificConfig.Source)
 	if err != nil {
+		fmt.Printf("Configuring client failed: %s.", err)
 		return
 	}
+	r.resources, err = resources.NewClusterResources(r.k8sClient, r.cfg.ProviderSpecificConfig.Source.Namespaces)
 
-	r.resources = k8s.NewUnstructuredResources(r.k8sClient)
-	for _, ns := range cfg.ProviderSpecificConfig.Namespaces {
-		err = r.resources.Gather(ns, cfg.ProviderSpecificConfig.GroupVersionKinds)
-		if err != nil {
-			return
-		}
-	}
 	svc = r
 	return
 }
@@ -126,8 +118,8 @@ func (r *K8s) Evaluate(ctx context.Context, cap string, conditionBytes []byte) (
 }
 
 func (r *K8s) Stop() {
-	fmt.Println("Goodbye.")
-	os.Exit(0)
+	fmt.Println("Goodbye (remain running).")
+	//os.Exit(0)
 }
 func (r *K8s) GetDependencies(ctx context.Context) (deps map[uri.URI][]*libprovider.Dep, err error) {
 	return
@@ -147,7 +139,12 @@ func (r *K8s) evaluateRegoExpression(ctx context.Context, condition ExpressionCo
 	if err != nil {
 		return
 	}
-	resultSet, err := prepared.Eval(ctx, rego.EvalInput(r.resources))
+
+	rs, err := r.resources.Gather(r.cfg.ProviderSpecificConfig.Source.GroupVersionKinds)
+	if err != nil {
+		return
+	}
+	resultSet, err := prepared.Eval(ctx, rego.EvalInput(rs))
 	if err != nil {
 		return
 	}
@@ -169,7 +166,21 @@ func (r *K8s) evaluateRegoModule(ctx context.Context, condition ModuleCondition)
 	if err != nil {
 		return
 	}
-	resultSet, err := prepared.Eval(ctx, rego.EvalInput(r.resources))
+
+	var res []any
+	if !condition.Defaults {
+		res, err = r.resources.Gather(r.cfg.ProviderSpecificConfig.Source.GroupVersionKinds)
+		if err != nil {
+			return
+		}
+	}
+	rs, err := r.resources.Gather(condition.Resources)
+	if err != nil {
+		return
+	}
+	res = append(res, rs...)
+
+	resultSet, err := prepared.Eval(ctx, rego.EvalInput(res))
 	if err != nil {
 		return
 	}
